@@ -7,6 +7,7 @@ import CaseDetail from "./views/CaseDetail";
 import Tasks from "./views/Tasks";
 import Reports from "./views/Reports";
 import Admin from "./views/Admin";
+import Affordability from "./views/Affordability";
 
 function Router() {
   const { session, route } = useStore();

@@ -215,3 +215,27 @@ export const IInbox = make(
 );
 
 export const IZap = make(<path d="M13 2.5 4.5 13.5H11l-1 8 8.5-11H12l1-8Z" />);
+
+export const ICalc = make(
+  <>
+    <rect x="5" y="2.5" width="14" height="19" rx="2.5" />
+    <path d="M8.5 6.5h7" />
+    <path d="M8.5 11.5h.01M12 11.5h.01M15.5 11.5h.01M8.5 15h.01M12 15h.01M15.5 15h.01M8.5 18.5h.01M12 18.5h.01M15.5 18.5h.01" />
+  </>
+);
+
+export const ITrophy = make(
+  <>
+    <path d="M8 21h8M12 17v4" />
+    <path d="M7 4h10v6a5 5 0 0 1-10 0V4Z" />
+    <path d="M7 6H4.5a1 1 0 0 0-1 1c0 2.2 1.6 3.8 3.5 4M17 6h2.5a1 1 0 0 1 1 1c0 2.2-1.6 3.8-3.5 4" />
+  </>
+);
+
+export const ITarget = make(
+  <>
+    <circle cx="12" cy="12" r="8.5" />
+    <circle cx="12" cy="12" r="4.5" />
+    <circle cx="12" cy="12" r="0.8" />
+  </>
+);

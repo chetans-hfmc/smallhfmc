@@ -1,11 +1,15 @@
 import { createContext, useCallback, useContext, useEffect, useRef, useState } from "react";
 import type { ReactNode } from "react";
-import type { Activity, DB, LoanCase, MasterItem, Route, StageItem, Task, User } from "./types";
+import type {
+  Activity, AffordabilityCheck, CaseState, DB, Instruction, LoanCase, MasterItem, Route, SlaRule, StageItem, Task, User,
+} from "./types";
+import { computeAffordability } from "./calc";
+import type { CalcInput } from "./calc";
 import { seedDb } from "./data";
-import { todayISO } from "./format";
+import { ageDays } from "./format";
 
-const DB_KEY = "hfmc.casetracker.db.v3";
-const SESSION_KEY = "hfmc.casetracker.session.v3";
+const DB_KEY = "hfmc.casetracker.db.v4";
+const SESSION_KEY = "hfmc.casetracker.session.v4";
 
 export interface ToastMsg {
   id: number;
@@ -19,6 +23,7 @@ export interface NewCaseInput {
   loanAmount: number;
   stage: string;
   ownerId: number;
+  linkCheckId?: number;
   task?: { description: string; dueDate: string; waitingFor: string; whyPending: string; ownerId: number };
 }
 
@@ -29,6 +34,8 @@ export interface TaskInput {
   whyPending: string;
   dueDate: string;
 }
+
+type MasterKind = "stages" | "whyPending" | "waitingFor" | "banks";
 
 interface StoreShape {
   db: DB;
@@ -42,21 +49,31 @@ interface StoreShape {
   dismissToast: (id: number) => void;
   createCase: (input: NewCaseInput) => LoanCase;
   updateCase: (id: number, patch: Partial<Omit<LoanCase, "id" | "createdAt">>) => void;
+  setCaseState: (id: number, state: CaseState, note?: string) => void;
   deleteCase: (id: number) => void;
   createTask: (caseId: number, input: TaskInput) => void;
   updateTask: (id: number, patch: Partial<Omit<Task, "id" | "caseId" | "createdAt">>) => void;
   completeTask: (id: number, remarks: string) => void;
+  addInstruction: (caseId: number, input: { instruction: string; assignedTo: number; dueDate: string }) => void;
+  completeInstruction: (id: number) => void;
+  runCheck: (input: CalcInput & { customerName: string }) => AffordabilityCheck;
+  attachCheck: (checkId: number, caseId: number) => void;
   saveUser: (u: User) => void;
   deleteUser: (id: number) => string | null;
-  addMaster: (kind: "stages" | "whyPending" | "waitingFor", label: string) => string | null;
-  toggleMaster: (kind: "stages" | "whyPending" | "waitingFor", id: number) => void;
-  deleteMaster: (kind: "stages" | "whyPending" | "waitingFor", id: number) => string | null;
+  addMaster: (kind: MasterKind, label: string) => string | null;
+  toggleMaster: (kind: MasterKind, id: number) => void;
+  deleteMaster: (kind: MasterKind, id: number) => string | null;
   moveStage: (id: number, dir: -1 | 1) => void;
+  addSlaRule: (rule: { stage: string; bank: string | null; maxDays: number }) => string | null;
+  updateSlaRule: (id: number, maxDays: number) => void;
+  toggleSlaRule: (id: number) => void;
+  deleteSlaRule: (id: number) => void;
   userById: (id: number) => User | undefined;
   visibleCases: () => LoanCase[];
   visibleTasks: () => Task[];
   canEditCase: (c: LoanCase) => boolean;
   canEditTask: (t: Task) => boolean;
+  canInstruct: () => boolean;
 }
 
 const Ctx = createContext<StoreShape | null>(null);
@@ -66,6 +83,7 @@ function parseHash(): Route {
   const [a, b] = h.split("/");
   if (a === "case" && b && !Number.isNaN(parseInt(b, 10))) return { name: "case", id: parseInt(b, 10) };
   if (a === "tasks") return { name: "tasks" };
+  if (a === "calculator") return { name: "calculator" };
   if (a === "reports") return { name: "reports" };
   if (a === "admin") return { name: "admin" };
   return { name: "dashboard" };
@@ -90,12 +108,43 @@ function loadDb(): DB {
     const raw = localStorage.getItem(DB_KEY);
     if (raw) {
       const parsed = JSON.parse(raw) as DB;
-      if (parsed && parsed.version === 3 && Array.isArray(parsed.cases)) return parsed;
+      if (parsed && parsed.version === 4 && Array.isArray(parsed.cases) && Array.isArray(parsed.slaRules)) return parsed;
     }
   } catch {
     /* fall through to seed */
   }
   return seedDb();
+}
+
+/* ---------------- pure report helpers (shared with views) ---------------- */
+
+export function slaFor(rules: SlaRule[], stage: string, bank: string): SlaRule | null {
+  const candidates = rules.filter((r) => r.active && r.stage === stage);
+  return candidates.find((r) => r.bank === bank) ?? candidates.find((r) => r.bank === null) ?? null;
+}
+
+export function stageEnteredAt(c: LoanCase, activities: Activity[]): string {
+  const moves = activities.filter((a) => a.caseId === c.id && a.action === "Stage moved");
+  return moves.length ? moves[moves.length - 1].at : c.createdAt;
+}
+
+export interface Escalation {
+  c: LoanCase;
+  rule: SlaRule;
+  daysInStage: number;
+  overBy: number;
+}
+
+export function computeEscalations(db: DB, cases: LoanCase[]): Escalation[] {
+  const out: Escalation[] = [];
+  for (const c of cases) {
+    if (c.caseStatus !== "Active") continue;
+    const rule = slaFor(db.slaRules, c.stage, c.bank);
+    if (!rule) continue;
+    const daysInStage = Math.max(0, Math.floor((Date.now() - new Date(stageEnteredAt(c, db.activities)).getTime()) / 86400000));
+    if (daysInStage > rule.maxDays) out.push({ c, rule, daysInStage, overBy: daysInStage - rule.maxDays });
+  }
+  return out.sort((a, b) => b.overBy - a.overBy);
 }
 
 export function StoreProvider({ children }: { children: ReactNode }) {
@@ -217,6 +266,10 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     [db.users, session]
   );
 
+  const canInstruct = useCallback((): boolean => {
+    return session?.role === "Admin" || session?.role === "Team Lead";
+  }, [session]);
+
   /* ---------------- cases ---------------- */
 
   const createCase = useCallback(
@@ -230,6 +283,8 @@ export function StoreProvider({ children }: { children: ReactNode }) {
         bank: input.bank,
         loanAmount: input.loanAmount,
         stage: input.stage,
+        caseStatus: "Active",
+        closedDate: null,
         ownerId: input.ownerId,
         createdAt: nowISO(),
         updatedAt: nowISO(),
@@ -259,6 +314,9 @@ export function StoreProvider({ children }: { children: ReactNode }) {
           cases: [...prev.cases, c],
           tasks,
           activities: logAct(prev.activities, c.id, me?.id ?? 0, "Case created", undefined, c.stage),
+          affordabilityChecks: input.linkCheckId
+            ? prev.affordabilityChecks.map((k) => (k.id === input.linkCheckId ? { ...k, caseId: c.id } : k))
+            : prev.affordabilityChecks,
         };
       });
       return c;
@@ -297,12 +355,48 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     [session]
   );
 
+  const setCaseState = useCallback(
+    (id: number, state: CaseState, note?: string) => {
+      const me = session;
+      setDb((prev) => {
+        const before = prev.cases.find((c) => c.id === id);
+        if (!before) return prev;
+        let acts = prev.activities;
+        if (state === "Active") {
+          acts = logAct(acts, id, me?.id ?? 0, "Case reopened", before.caseStatus);
+        } else if (state === "Closed") {
+          acts = logAct(acts, id, me?.id ?? 0, "Case booked", before.stage, "Closed");
+        } else {
+          acts = logAct(acts, id, me?.id ?? 0, "Case marked lost", before.stage, note || undefined);
+        }
+        return {
+          ...prev,
+          cases: prev.cases.map((c) =>
+            c.id === id
+              ? {
+                  ...c,
+                  caseStatus: state,
+                  closedDate: state === "Active" ? null : new Date().toISOString().slice(0, 10),
+                  stage: state === "Closed" ? (prev.stages.some((s) => s.label === "Closed") ? "Closed" : c.stage) : c.stage,
+                  updatedAt: nowISO(),
+                }
+              : c
+          ),
+          activities: acts,
+        };
+      });
+    },
+    [session]
+  );
+
   const deleteCase = useCallback((id: number) => {
     setDb((prev) => ({
       ...prev,
       cases: prev.cases.filter((c) => c.id !== id),
       tasks: prev.tasks.filter((t) => t.caseId !== id),
       activities: prev.activities.filter((a) => a.caseId !== id),
+      instructions: prev.instructions.filter((i) => i.caseId !== id),
+      affordabilityChecks: prev.affordabilityChecks.map((k) => (k.caseId === id ? { ...k, caseId: null } : k)),
     }));
   }, []);
 
@@ -385,6 +479,93 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     [session]
   );
 
+  /* ---------------- instructions ---------------- */
+
+  const addInstruction = useCallback(
+    (caseId: number, input: { instruction: string; assignedTo: number; dueDate: string }) => {
+      const me = session;
+      setDb((prev) => {
+        const inst: Instruction = {
+          id: nextId(prev.instructions),
+          caseId,
+          issuedBy: me?.id ?? 0,
+          instruction: input.instruction.trim(),
+          assignedTo: input.assignedTo,
+          dueDate: input.dueDate,
+          status: "Open",
+          createdAt: nowISO(),
+          completedAt: null,
+        };
+        return {
+          ...prev,
+          instructions: [...prev.instructions, inst],
+          activities: logAct(prev.activities, caseId, me?.id ?? 0, "Instruction issued", undefined, inst.instruction),
+        };
+      });
+    },
+    [session]
+  );
+
+  const completeInstruction = useCallback(
+    (id: number) => {
+      const me = session;
+      setDb((prev) => {
+        const before = prev.instructions.find((i) => i.id === id);
+        if (!before) return prev;
+        return {
+          ...prev,
+          instructions: prev.instructions.map((i) => (i.id === id ? { ...i, status: "Done" as const, completedAt: nowISO() } : i)),
+          activities: logAct(prev.activities, before.caseId, me?.id ?? 0, "Instruction completed", before.instruction),
+        };
+      });
+    },
+    [session]
+  );
+
+  /* ---------------- affordability calculator ---------------- */
+
+  const runCheck = useCallback(
+    (input: CalcInput & { customerName: string }): AffordabilityCheck => {
+      const me = session;
+      const r = computeAffordability(input);
+      const check: AffordabilityCheck = {
+        id: nextId(db.affordabilityChecks),
+        caseId: null,
+        customerName: input.customerName.trim() || "Unnamed enquiry",
+        monthlyIncome: input.monthlyIncome,
+        otherIncome: input.otherIncome,
+        existingEmis: input.existingEmis,
+        age: input.age,
+        employmentType: input.employmentType,
+        propertyValue: input.propertyValue,
+        bank: input.bank,
+        interestRate: r.rateUsed,
+        tenureYears: r.tenureUsed,
+        applicableLtv: r.applicableLtv,
+        maxLoanByLtv: r.maxLoanByLtv,
+        maxDbrPct: r.maxDbrPct,
+        availableDbrEmi: r.availableDbrEmi,
+        maxLoanByDbr: r.maxLoanByDbr,
+        maxTenureByAge: r.maxTenureByAge,
+        finalEligibleLoan: r.finalEligibleLoan,
+        estimatedEmi: r.estimatedEmi,
+        eligible: r.eligible,
+        createdBy: me?.id ?? 0,
+        createdAt: nowISO(),
+      };
+      setDb((prev) => ({ ...prev, affordabilityChecks: [...prev.affordabilityChecks, check] }));
+      return check;
+    },
+    [db.affordabilityChecks, session]
+  );
+
+  const attachCheck = useCallback((checkId: number, caseId: number) => {
+    setDb((prev) => ({
+      ...prev,
+      affordabilityChecks: prev.affordabilityChecks.map((k) => (k.id === checkId ? { ...k, caseId } : k)),
+    }));
+  }, []);
+
   /* ---------------- admin: users ---------------- */
 
   const saveUser = useCallback((u: User) => {
@@ -410,8 +591,6 @@ export function StoreProvider({ children }: { children: ReactNode }) {
   );
 
   /* ---------------- admin: master lists ---------------- */
-
-  type MasterKind = "stages" | "whyPending" | "waitingFor";
 
   const addMaster = useCallback(
     (kind: MasterKind, label: string): string | null => {
@@ -448,6 +627,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       if (kind === "stages") used = db.cases.filter((c) => c.stage === item.label).length;
       if (kind === "whyPending") used = db.tasks.filter((t) => t.status === "Open" && t.whyPending === item.label).length;
       if (kind === "waitingFor") used = db.tasks.filter((t) => t.status === "Open" && t.waitingFor === item.label).length;
+      if (kind === "banks") used = db.cases.filter((c) => c.caseStatus === "Active" && c.bank === item.label).length;
       if (used > 0) return `Blocked: "${item.label}" is in use by ${used} record(s). Deactivate it instead.`;
       setDb((prev) => ({ ...prev, [kind]: (prev[kind] as MasterItem[]).filter((m) => m.id !== id) }));
       return null;
@@ -470,11 +650,40 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     });
   }, []);
 
+  /* ---------------- admin: SLA rules ---------------- */
+
+  const addSlaRule = useCallback(
+    (rule: { stage: string; bank: string | null; maxDays: number }): string | null => {
+      if (rule.maxDays < 1) return "Max days must be at least 1.";
+      const dup = db.slaRules.find((r) => r.stage === rule.stage && r.bank === rule.bank && r.active);
+      if (dup) return `A rule already exists for ${rule.stage}${rule.bank ? ` · ${rule.bank}` : ""}. Edit it instead.`;
+      setDb((prev) => ({ ...prev, slaRules: [...prev.slaRules, { id: nextId(prev.slaRules), ...rule, active: true }] }));
+      return null;
+    },
+    [db.slaRules]
+  );
+
+  const updateSlaRule = useCallback((id: number, maxDays: number) => {
+    setDb((prev) => ({ ...prev, slaRules: prev.slaRules.map((r) => (r.id === id ? { ...r, maxDays: Math.max(1, maxDays) } : r)) }));
+  }, []);
+
+  const toggleSlaRule = useCallback((id: number) => {
+    setDb((prev) => ({ ...prev, slaRules: prev.slaRules.map((r) => (r.id === id ? { ...r, active: !r.active } : r)) }));
+  }, []);
+
+  const deleteSlaRule = useCallback((id: number) => {
+    setDb((prev) => ({ ...prev, slaRules: prev.slaRules.filter((r) => r.id !== id) }));
+  }, []);
+
   const value: StoreShape = {
     db, session, route, toasts, nav, login, logout, toast, dismissToast,
-    createCase, updateCase, deleteCase, createTask, updateTask, completeTask,
+    createCase, updateCase, setCaseState, deleteCase,
+    createTask, updateTask, completeTask,
+    addInstruction, completeInstruction,
+    runCheck, attachCheck,
     saveUser, deleteUser, addMaster, toggleMaster, deleteMaster, moveStage,
-    userById, visibleCases, visibleTasks, canEditCase, canEditTask,
+    addSlaRule, updateSlaRule, toggleSlaRule, deleteSlaRule,
+    userById, visibleCases, visibleTasks, canEditCase, canEditTask, canInstruct,
   };
 
   return <Ctx.Provider value={value}>{children}</Ctx.Provider>;
@@ -494,12 +703,17 @@ export interface Kpis {
   atRisk: number;
   noAction: number;
   openTasks: number;
-  dueToday: number;
+  escalations: number;
   pipelineValue: number;
 }
 
-export function computeKpis(cases: LoanCase[], tasks: Task[], statusOf: (c: LoanCase) => "On Track" | "At Risk" | "Overdue" | "No Action"): Kpis {
-  const open = cases.filter((c) => c.stage !== "Closed");
+export function computeKpis(
+  cases: LoanCase[],
+  tasks: Task[],
+  statusOf: (c: LoanCase) => "On Track" | "At Risk" | "Overdue" | "No Action",
+  escalationCount: number
+): Kpis {
+  const open = cases.filter((c) => c.caseStatus === "Active");
   let overdue = 0, atRisk = 0, noAction = 0;
   for (const c of open) {
     const s = statusOf(c);
@@ -514,18 +728,24 @@ export function computeKpis(cases: LoanCase[], tasks: Task[], statusOf: (c: Loan
     atRisk,
     noAction,
     openTasks: openTasks.length,
-    dueToday: openTasks.filter((t) => t.dueDate === todayISO()).length,
+    escalations: escalationCount,
     pipelineValue: open.reduce((s, c) => s + c.loanAmount, 0),
   };
 }
 
 export function activityPerDay(activities: Activity[], days: number): number[] {
   const out = new Array(days).fill(0) as number[];
-  const today = new Date();
   for (const a of activities) {
     const d = new Date(a.at);
-    const diff = Math.floor((today.setHours(0, 0, 0, 0) - d.setHours(0, 0, 0, 0)) / 86400000);
+    const today = new Date();
+    const diff = Math.floor(
+      (new Date(today.getFullYear(), today.getMonth(), today.getDate()).getTime() -
+        new Date(d.getFullYear(), d.getMonth(), d.getDate()).getTime()) /
+        86400000
+    );
     if (diff >= 0 && diff < days) out[days - 1 - diff] += 1;
   }
   return out;
 }
+
+export { ageDays };
