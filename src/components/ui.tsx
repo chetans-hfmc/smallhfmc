@@ -1,0 +1,238 @@
+import { useEffect } from "react";
+import type { ReactNode } from "react";
+import type { CaseStatus, Tone } from "../lib/types";
+import { STATUS_TONE, dueInfo, initials } from "../lib/format";
+import { useStore } from "../lib/store";
+import { IAlert, ICheck, IX } from "./icons";
+
+/* ---------------- chips ---------------- */
+
+const CHIP_STYLES: Record<Tone, { fg: string; bg: string; bd: string }> = {
+  mint: { fg: "#43d69b", bg: "rgba(67,214,155,0.09)", bd: "rgba(67,214,155,0.32)" },
+  amber: { fg: "#f2b04c", bg: "rgba(242,176,76,0.10)", bd: "rgba(242,176,76,0.34)" },
+  coral: { fg: "#f27363", bg: "rgba(242,115,99,0.10)", bd: "rgba(242,115,99,0.36)" },
+  sky: { fg: "#57c2ea", bg: "rgba(87,194,234,0.10)", bd: "rgba(87,194,234,0.32)" },
+  slate: { fg: "#8ca6b0", bg: "rgba(140,166,176,0.09)", bd: "rgba(140,166,176,0.3)" },
+};
+
+export function Chip({ tone, children, dot }: { tone: Tone; children: ReactNode; dot?: boolean }) {
+  const s = CHIP_STYLES[tone];
+  return (
+    <span className="chip" style={{ color: s.fg, background: s.bg, borderColor: s.bd }}>
+      {dot && <span className="w-[6px] h-[6px] rounded-full" style={{ background: s.fg }} />}
+      {children}
+    </span>
+  );
+}
+
+export function StatusChip({ status }: { status: CaseStatus }) {
+  return (
+    <Chip tone={STATUS_TONE[status]} dot={status === "Overdue"}>
+      {status}
+    </Chip>
+  );
+}
+
+export function DueChip({ dueISO }: { dueISO: string }) {
+  const d = dueInfo(dueISO);
+  return <Chip tone={d.tone}>{d.label}</Chip>;
+}
+
+/* ---------------- avatar ---------------- */
+
+const AV_COLORS = ["#f2b04c", "#43d69b", "#57c2ea", "#f27363", "#b48ef2", "#6fd6c3"];
+
+export function Avatar({ name, size = 30 }: { name: string; size?: number }) {
+  const idx = name.split("").reduce((s, ch) => s + ch.charCodeAt(0), 0) % AV_COLORS.length;
+  const c = AV_COLORS[idx];
+  return (
+    <span
+      className="inline-flex items-center justify-center rounded-full font-disp font-semibold shrink-0 select-none"
+      style={{
+        width: size,
+        height: size,
+        fontSize: size * 0.36,
+        color: c,
+        background: `${c}1f`,
+        border: `1px solid ${c}55`,
+      }}
+      title={name}
+    >
+      {initials(name)}
+    </span>
+  );
+}
+
+/* ---------------- modal ---------------- */
+
+export function Modal({
+  title,
+  sub,
+  onClose,
+  children,
+  footer,
+  width = 480,
+}: {
+  title: string;
+  sub?: string;
+  onClose: () => void;
+  children: ReactNode;
+  footer?: ReactNode;
+  width?: number;
+}) {
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") onClose();
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [onClose]);
+
+  return (
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center p-4 anim-fade-in"
+      style={{ background: "rgba(6,13,17,0.72)" }}
+      onMouseDown={(e) => {
+        if (e.target === e.currentTarget) onClose();
+      }}
+    >
+      <div className="card anim-scale-in w-full max-h-[88vh] flex flex-col" style={{ maxWidth: width, background: "var(--raised)" }}>
+        <div className="flex items-start justify-between px-5 pt-4 pb-3 border-b border-[var(--line-soft)]">
+          <div>
+            <h3 className="font-disp text-[16px] font-semibold m-0">{title}</h3>
+            {sub && <p className="text-[12px] text-[var(--ink-faint)] mt-0.5 mb-0">{sub}</p>}
+          </div>
+          <button
+            className="btn btn-ghost btn-sm !px-2 -mr-1.5 -mt-0.5"
+            onClick={onClose}
+            aria-label="Close dialog"
+          >
+            <IX size={15} />
+          </button>
+        </div>
+        <div className="px-5 py-4 overflow-y-auto">{children}</div>
+        {footer && <div className="px-5 py-3.5 border-t border-[var(--line-soft)] flex justify-end gap-2.5">{footer}</div>}
+      </div>
+    </div>
+  );
+}
+
+export function ConfirmModal({
+  title,
+  body,
+  confirmLabel,
+  danger = false,
+  onConfirm,
+  onClose,
+}: {
+  title: string;
+  body: ReactNode;
+  confirmLabel: string;
+  danger?: boolean;
+  onConfirm: () => void;
+  onClose: () => void;
+}) {
+  return (
+    <Modal title={title} onClose={onClose} width={420}
+      footer={
+        <>
+          <button className="btn btn-ghost" onClick={onClose}>Cancel</button>
+          <button
+            className={`btn ${danger ? "btn-danger" : "btn-primary"}`}
+            onClick={() => {
+              onConfirm();
+              onClose();
+            }}
+          >
+            {confirmLabel}
+          </button>
+        </>
+      }
+    >
+      <div className="text-[13.5px] text-[var(--ink-dim)] leading-relaxed">{body}</div>
+    </Modal>
+  );
+}
+
+/* ---------------- empty state ---------------- */
+
+export function EmptyState({ icon, title, body }: { icon: ReactNode; title: string; body: string }) {
+  return (
+    <div className="flex flex-col items-center justify-center text-center py-12 px-6">
+      <div className="w-12 h-12 rounded-xl flex items-center justify-center mb-3"
+        style={{ background: "rgba(232,241,239,0.04)", border: "1px solid var(--line-soft)", color: "var(--ink-faint)" }}>
+        {icon}
+      </div>
+      <p className="font-disp font-semibold text-[14.5px] mb-1">{title}</p>
+      <p className="text-[12.5px] text-[var(--ink-faint)] max-w-[300px] m-0">{body}</p>
+    </div>
+  );
+}
+
+/* ---------------- toasts ---------------- */
+
+export function Toasts() {
+  const { toasts, dismissToast } = useStore();
+  return (
+    <div className="fixed bottom-5 right-5 z-[60] flex flex-col gap-2.5 w-[min(360px,calc(100vw-40px))]">
+      {toasts.map((t) => {
+        const color = t.kind === "success" ? "var(--mint)" : t.kind === "error" ? "var(--coral)" : "var(--sky)";
+        return (
+          <div
+            key={t.id}
+            className="anim-slide-right flex items-start gap-3 px-4 py-3 rounded-lg text-[13px] shadow-[0_12px_32px_-10px_rgba(0,0,0,0.6)]"
+            style={{ background: "var(--raised)", border: "1px solid var(--line)", borderLeft: `3px solid ${color}` }}
+          >
+            <span className="mt-[1px]" style={{ color }}>
+              {t.kind === "success" ? <ICheck size={16} /> : t.kind === "error" ? <IAlert size={16} /> : <ICheck size={16} />}
+            </span>
+            <span className="flex-1 leading-snug">{t.msg}</span>
+            <button className="text-[var(--ink-faint)] hover:text-[var(--ink)] transition-colors" onClick={() => dismissToast(t.id)} aria-label="Dismiss">
+              <IX size={14} />
+            </button>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+/* ---------------- misc ---------------- */
+
+export function SectionLabel({ children }: { children: ReactNode }) {
+  return (
+    <p className="font-disp text-[11px] font-semibold uppercase tracking-[0.11em] text-[var(--ink-faint)] mb-2.5 mt-0">
+      {children}
+    </p>
+  );
+}
+
+export function Seg<T extends string>({
+  options,
+  value,
+  onChange,
+}: {
+  options: { value: T; label: string; count?: number }[];
+  value: T;
+  onChange: (v: T) => void;
+}) {
+  return (
+    <div className="inline-flex rounded-lg p-[3px] gap-[2px]" style={{ background: "var(--bg2)", border: "1px solid var(--line-soft)" }}>
+      {options.map((o) => (
+        <button
+          key={o.value}
+          onClick={() => onChange(o.value)}
+          className="px-3 py-[5px] rounded-[6px] font-disp text-[12.5px] font-medium transition-all"
+          style={
+            value === o.value
+              ? { background: "var(--raised)", color: "var(--ink)", boxShadow: "0 2px 8px rgba(0,0,0,0.3)", border: "1px solid var(--line)" }
+              : { color: "var(--ink-faint)", border: "1px solid transparent" }
+          }
+        >
+          {o.label}
+          {o.count !== undefined && <span className="mono text-[11px] ml-1.5 opacity-70">{o.count}</span>}
+        </button>
+      ))}
+    </div>
+  );
+}
