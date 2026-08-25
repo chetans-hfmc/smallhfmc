@@ -83,7 +83,7 @@ interface StoreShape {
   updateDesignation: (id: number, patch: Partial<Omit<Designation, "id" | "builtIn" | "super">>) => void;
   deleteDesignation: (id: number) => string | null;
   runCheck: (input: CalcInput, customerName: string) => void;
-  createCaseFromCheck: (checkId: number) => LoanCase | null;
+  createCaseFromCheck: (checkId: number, submitToBank?: boolean) => LoanCase | null;
   linkCheckToCase: (checkId: number, caseId: number) => void;
   saveUser: (u: User) => void;
   deleteUser: (id: number) => string | null;
@@ -605,7 +605,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
         const first: Task = {
           id: nextId(tasks),
           caseId: c.id,
-          description: `Collect income & property documents — file assessed at ${k.bank} for AED ${(k.finalEligibleLoan / 1000).toFixed(0)}K`,
+          description: `Collect income & property documents — file assessed for AED ${(k.finalEligibleLoan / 1000).toFixed(0)}K${k.bank ? ` at ${k.bank}` : ""}`,
           ownerId: me.id,
           createdBy: me.id,
           waitingFor: "Client",
@@ -818,13 +818,12 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       summary: { income: number; emi: number; final: number; rate: number; tenorMonths: number; ltv: number; eligible: boolean }
     ): number => {
       const me = session;
-      let newId = 0;
+      const newId = nextId(db.affordabilityChecks);
       setDb((prev) => {
-        newId = nextId(prev.affordabilityChecks);
         return {
           ...prev,
           affordabilityChecks: [
-            ...prev.affordabilityChecks,
+            ...prev.affordabilityChecks.filter((k) => k.id !== newId),
             {
               id: newId,
               caseId: null,
@@ -858,7 +857,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       void whatsapp;
       return newId;
     },
-    [session]
+    [session, db.affordabilityChecks]
   );
 
   /* ---------------- admin: designations ---------------- */

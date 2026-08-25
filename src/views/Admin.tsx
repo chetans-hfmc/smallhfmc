@@ -1,7 +1,6 @@
 import { useState } from "react";
 import { useStore } from "../lib/store";
 import type { PartnerKind, Role, User } from "../lib/types";
-import { ROLE_SENIORITY } from "../lib/types";
 import { fmtRate } from "../lib/format";
 import { Avatar, Chip, Modal } from "../components/ui";
 import { ConfirmModal } from "../components/bits";

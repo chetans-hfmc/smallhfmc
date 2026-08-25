@@ -6,6 +6,7 @@ import { TONE_HEX } from "../lib/format";
 import { LogoMark } from "../components/icons";
 
 const DEMOS = [
+  { email: "super@meridian.ae", pw: "super123", label: "Super Admin", sub: "platform owner · above HoC" },
   { email: "head@meridian.ae", pw: "admin123", label: "Head of Company", sub: "supreme · issues tasks" },
   { email: "pa@meridian.ae", pw: "demo123", label: "PA to HoC", sub: "issues tasks" },
   { email: "omar@meridian.ae", pw: "demo123", label: "Mortgage Head", sub: "issues & delegates" },
@@ -156,7 +157,7 @@ export default function Login() {
               ))}
             </div>
             <p className="text-[11px] text-[var(--ink-faint)] mt-3 mb-0">
-              HoC password <span className="mono">admin123</span> · everyone else <span className="mono">demo123</span> — then hit “Enter the tracker”.
+              Super Admin <span className="mono">super123</span> · HoC <span className="mono">admin123</span> · everyone else <span className="mono">demo123</span>.
             </p>
           </div>
         </div>
