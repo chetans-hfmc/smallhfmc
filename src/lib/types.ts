@@ -1,9 +1,17 @@
-export type Role = "Admin" | "Team Lead" | "SPO" | "VRM";
+export type Role =
+  | "Head of Company"
+  | "PA to HoC"
+  | "Mortgage Head"
+  | "Team Leader SPO"
+  | "Team Leader VRM"
+  | "SPO"
+  | "VRM";
 
 export type CaseStatus = "On Track" | "At Risk" | "Overdue" | "No Action";
-export type CaseState = "Active" | "Closed" | "Lost";
 export type TaskStatus = "Open" | "Done";
-export type InstructionStatus = "Open" | "Done";
+export type CaseState = "Active" | "Closed" | "Lost";
+export type CaseSource = "Direct" | "Agent" | "Broker" | "Website" | "Referral";
+export type PartnerKind = "Agent" | "Broker" | "Referral";
 
 export interface User {
   id: number;
@@ -16,16 +24,25 @@ export interface User {
   createdAt: string;
 }
 
+export interface CasePartner {
+  kind: PartnerKind;
+  name: string;
+  sharePct: number; // % of our bank commission paid to the partner
+}
+
 export interface LoanCase {
   id: number;
   caseNumber: string;
   customer: string;
-  bank: string;
-  loanAmount: number; // rupees
+  banks: string[]; // banks the case has been submitted to — empty = "not yet decided"
+  wonBank: string | null; // set when the case books
+  loanAmount: number; // AED
   stage: string;
   caseStatus: CaseState;
-  closedDate: string | null; // set when caseStatus changes to Closed / Lost
+  closedDate: string | null;
   ownerId: number;
+  source: CaseSource;
+  partner: CasePartner | null;
   createdAt: string;
   updatedAt: string;
 }
@@ -35,6 +52,7 @@ export interface Task {
   caseId: number;
   description: string;
   ownerId: number;
+  createdBy: number; // who opened / assigned the task
   waitingFor: string;
   whyPending: string;
   createdAt: string;
@@ -54,24 +72,6 @@ export interface Activity {
   newValue?: string;
 }
 
-export interface MasterItem {
-  id: number;
-  label: string;
-  active: boolean;
-}
-
-export interface StageItem extends MasterItem {
-  sortOrder: number;
-}
-
-export interface SlaRule {
-  id: number;
-  stage: string;
-  bank: string | null; // null = applies to all banks
-  maxDays: number;
-  active: boolean;
-}
-
 export interface Instruction {
   id: number;
   caseId: number;
@@ -79,16 +79,15 @@ export interface Instruction {
   instruction: string;
   assignedTo: number;
   dueDate: string;
-  status: InstructionStatus;
+  status: TaskStatus;
   createdAt: string;
   completedAt: string | null;
 }
 
 export interface AffordabilityCheck {
   id: number;
-  caseId: number | null; // nullable: can run before a case exists
+  caseId: number | null;
   customerName: string;
-  // inputs
   monthlyIncome: number;
   otherIncome: number;
   existingEmis: number;
@@ -96,10 +95,9 @@ export interface AffordabilityCheck {
   employmentType: "Salaried" | "Self-Employed";
   propertyValue: number;
   bank: string;
-  interestRate: number; // annual %
+  interestRate: number;
   tenureYears: number;
-  // outputs (computed, stored for audit)
-  applicableLtv: number; // %
+  applicableLtv: number;
   maxLoanByLtv: number;
   maxDbrPct: number;
   availableDbrEmi: number;
@@ -112,6 +110,39 @@ export interface AffordabilityCheck {
   createdAt: string;
 }
 
+export interface MasterItem {
+  id: number;
+  label: string;
+  active: boolean;
+}
+
+export interface StageItem extends MasterItem {
+  sortOrder: number;
+}
+
+export interface BankItem {
+  id: number;
+  name: string;
+  ratePct: number; // our commission rate on loan amount
+  active: boolean;
+}
+
+export interface PartnerItem {
+  id: number;
+  kind: PartnerKind;
+  name: string;
+  defaultSharePct: number;
+  active: boolean;
+}
+
+export interface SlaRule {
+  id: number;
+  stage: string;
+  bank: string | null; // null = applies to all banks
+  maxDays: number;
+  active: boolean;
+}
+
 export interface DB {
   version: number;
   users: User[];
@@ -121,7 +152,8 @@ export interface DB {
   stages: StageItem[];
   whyPending: MasterItem[];
   waitingFor: MasterItem[];
-  banks: MasterItem[];
+  banks: BankItem[];
+  partners: PartnerItem[];
   slaRules: SlaRule[];
   instructions: Instruction[];
   affordabilityChecks: AffordabilityCheck[];
@@ -136,3 +168,16 @@ export type Route =
   | { name: "admin" };
 
 export type Tone = "mint" | "amber" | "coral" | "sky" | "slate";
+
+export const ROLE_SENIORITY: Role[] = [
+  "Head of Company",
+  "PA to HoC",
+  "Mortgage Head",
+  "Team Leader SPO",
+  "Team Leader VRM",
+  "SPO",
+  "VRM",
+];
+
+export const SOURCES: CaseSource[] = ["Direct", "Agent", "Broker", "Website", "Referral"];
+export const PARTNER_SHARES = [10, 15, 20, 30];

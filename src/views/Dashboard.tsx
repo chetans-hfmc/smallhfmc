@@ -3,7 +3,7 @@ import { activityPerDay, computeEscalations, computeKpis, useStore } from "../li
 import type { CaseState, CaseStatus, LoanCase } from "../lib/types";
 import { TONE_HEX, ageDays, caseStatusOf, fmtMoney, relTime, todayISO } from "../lib/format";
 import { Avatar, Chip, EmptyState, StatusChip } from "../components/ui";
-import { CaseStateChip } from "../components/bits";
+import { BankChips, CaseStateChip, SourceChip } from "../components/bits";
 import { BarList, Donut, Spark, useCountUp } from "../components/charts";
 import { IBriefcase, IInbox } from "../components/icons";
 
@@ -46,7 +46,7 @@ export default function Dashboard() {
   const tasks = useMemo(() => visibleTasks(), [visibleTasks]);
   const statusOf = (c: LoanCase): CaseStatus => caseStatusOf(c, db.tasks);
   const k = useMemo(
-    () => computeKpis(cases, tasks, statusOf, computeEscalations(db, cases).length),
+    () => computeKpis(cases, tasks, statusOf, db.banks, computeEscalations(db, cases).length),
     [cases, tasks, db]
   );
   const spark = useMemo(() => activityPerDay(db.activities, 14), [db.activities]);
@@ -79,7 +79,12 @@ export default function Dashboard() {
       if (status !== "All" && statusOf(c) !== status) return false;
       if (search) {
         const q = search.toLowerCase();
-        if (!c.customer.toLowerCase().includes(q) && !c.caseNumber.toLowerCase().includes(q) && !c.bank.toLowerCase().includes(q)) return false;
+        if (
+          !c.customer.toLowerCase().includes(q) &&
+          !c.caseNumber.toLowerCase().includes(q) &&
+          !c.banks.some((b) => b.toLowerCase().includes(q))
+        )
+          return false;
       }
       return true;
     })
@@ -103,7 +108,12 @@ export default function Dashboard() {
     .sort((a, b) => b.at.localeCompare(a.at))
     .slice(0, 7);
 
-  const scope = session?.role === "Admin" ? "all teams" : session?.role === "Team Lead" ? `team ${session.team}` : "your book";
+  const scope =
+    session?.role === "Head of Company" || session?.role === "PA to HoC" || session?.role === "Mortgage Head"
+      ? "all teams"
+      : session?.role === "Team Leader SPO" || session?.role === "Team Leader VRM"
+      ? `team ${session.team}`
+      : "your book";
 
   return (
     <div className="space-y-5">
@@ -130,6 +140,7 @@ export default function Dashboard() {
         <Kpi label="No next action" value={k.noAction} tone="sky" />
         <Kpi label="Open tasks" value={k.openTasks} />
         <Kpi label="Pipeline value" value={k.pipelineValue} format={fmtMoney} tone="mint" />
+        <Kpi label="Est. commission" value={k.estCommission} format={fmtMoney} tone="amber" sub="at current bank rates" />
       </div>
 
       <div className="grid grid-cols-1 xl:grid-cols-[1fr_320px] gap-4 items-start">
@@ -168,7 +179,7 @@ export default function Dashboard() {
             )}
             <select className="select" style={{ width: 140 }} value={owner} onChange={(e) => setOwner(e.target.value)}>
               <option value="All">All owners</option>
-              {db.users.filter((u) => u.role !== "Admin").map((u) => (
+              {db.users.filter((u) => u.role !== "Head of Company" && u.role !== "PA to HoC").map((u) => (
                 <option key={u.id} value={u.id}>{u.name.split(" ")[0]}</option>
               ))}
             </select>
@@ -195,7 +206,8 @@ export default function Dashboard() {
                   <tr>
                     <th>Case</th>
                     <th>Customer</th>
-                    <th>Bank</th>
+                    <th>Source</th>
+                    <th>Banks</th>
                     <th>Stage</th>
                     <th>Amount</th>
                     <th>Owner</th>
@@ -209,8 +221,12 @@ export default function Dashboard() {
                     return (
                       <tr key={c.id} onClick={() => nav({ name: "case", id: c.id })}>
                         <td className="mono text-[12.5px]" style={{ color: "var(--amber)" }}>{c.caseNumber}</td>
-                        <td className="font-medium">{c.customer}</td>
-                        <td className="text-[var(--ink-dim)]">{c.bank}</td>
+                        <td className="font-medium">
+                          {c.customer}
+                          {c.partner && <span className="block text-[10.5px] text-[var(--ink-faint)]">{c.partner.name} · {c.partner.sharePct}%</span>}
+                        </td>
+                        <td><SourceChip source={c.source} /></td>
+                        <td><BankChips c={c} /></td>
                         <td><Chip tone="slate">{c.stage}</Chip></td>
                         <td className="mono">{fmtMoney(c.loanAmount)}</td>
                         <td>

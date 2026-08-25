@@ -1,375 +1,470 @@
 import { useState } from "react";
-import type { ReactNode } from "react";
 import { useStore } from "../lib/store";
-import type { MasterItem, Role, SlaRule, User } from "../lib/types";
-import { fmtDate, relTime } from "../lib/format";
+import type { PartnerKind, Role, User } from "../lib/types";
+import { ROLE_SENIORITY } from "../lib/types";
+import { fmtRate } from "../lib/format";
 import { Avatar, Chip, Modal } from "../components/ui";
 import { ConfirmModal } from "../components/bits";
-import { IChevronL, IChevronR, IPencil, IPlus, ITrash, IUsers } from "../components/icons";
+import { IChevronL, IChevronR, IPencil, IPlus, ITrash, IX } from "../components/icons";
 
-function Section({ title, sub, children, wide }: { title: string; sub: string; children: ReactNode; wide?: boolean }) {
-  return (
-    <div className={`card p-4 anim-fade-up ${wide ? "xl:col-span-2" : ""}`}>
-      <h3 className="font-disp font-semibold text-[14.5px] m-0">{title}</h3>
-      <p className="text-[11.5px] text-[var(--ink-faint)] mt-0.5 mb-3">{sub}</p>
-      {children}
-    </div>
-  );
-}
+const TABS: { key: string; label: string }[] = [
+  { key: "users", label: "Teammates" },
+  { key: "banks", label: "Banks & rates" },
+  { key: "partners", label: "Partners" },
+  { key: "stages", label: "Stages" },
+  { key: "whyPending", label: "Why pending" },
+  { key: "waitingFor", label: "Waiting for" },
+  { key: "sla", label: "SLA rules" },
+];
 
-function MasterList({ kind, title, sub, hint }: { kind: "whyPending" | "waitingFor" | "banks"; title: string; sub: string; hint: string }) {
-  const { db, addMaster, toggleMaster, deleteMaster, toast } = useStore();
-  const [val, setVal] = useState("");
-  const items = db[kind] as MasterItem[];
-
-  const add = () => {
-    const err = addMaster(kind, val);
-    if (err) return toast("error", err);
-    setVal("");
-    toast("success", `Added to ${title.toLowerCase()}.`);
-  };
-
-  return (
-    <Section title={title} sub={sub}>
-      <div className="flex gap-2 mb-3">
-        <input
-          className="input"
-          placeholder={hint}
-          value={val}
-          onChange={(e) => setVal(e.target.value)}
-          onKeyDown={(e) => e.key === "Enter" && add()}
-        />
-        <button className="btn btn-ghost shrink-0" onClick={add}>
-          <IPlus size={14} /> Add
-        </button>
-      </div>
-      <div className="flex flex-wrap gap-1.5">
-        {items.map((m) => (
-          <span
-            key={m.id}
-            className="chip group"
-            style={{
-              color: m.active ? "var(--ink-dim)" : "var(--ink-faint)",
-              borderColor: m.active ? "var(--line)" : "var(--line-soft)",
-              background: m.active ? "rgba(232,241,239,0.03)" : "transparent",
-              textDecoration: m.active ? "none" : "line-through",
-            }}
-          >
-            <button className="hover:text-[var(--ink)] transition-colors" title={m.active ? "Deactivate" : "Activate"} onClick={() => toggleMaster(kind, m.id)}>
-              {m.label}
-            </button>
-            <button
-              className="text-[var(--ink-faint)] hover:text-[var(--coral)] transition-colors"
-              title="Delete"
-              onClick={() => {
-                const err = deleteMaster(kind, m.id);
-                if (err) toast("error", err);
-                else toast("info", `"${m.label}" removed.`);
-              }}
-            >
-              ×
-            </button>
-          </span>
-        ))}
-      </div>
-    </Section>
-  );
-}
-
-function StagesManager() {
-  const { db, addMaster, toggleMaster, deleteMaster, moveStage, toast } = useStore();
-  const [val, setVal] = useState("");
-  const stages = [...db.stages].sort((a, b) => a.sortOrder - b.sortOrder);
-
-  const add = () => {
-    const err = addMaster("stages", val);
-    if (err) return toast("error", err);
-    setVal("");
-    toast("success", "Stage added at the end of the workflow.");
-  };
-
-  return (
-    <Section title="Workflow stages" sub="The pipeline every case walks. Reorder with the arrows — the stepper follows.">
-      <div className="flex gap-2 mb-3">
-        <input className="input" placeholder="New stage name" value={val} onChange={(e) => setVal(e.target.value)} onKeyDown={(e) => e.key === "Enter" && add()} />
-        <button className="btn btn-ghost shrink-0" onClick={add}>
-          <IPlus size={14} /> Add
-        </button>
-      </div>
-      <ol className="space-y-1.5">
-        {stages.map((s, i) => (
-          <li key={s.id} className="flex items-center gap-2.5 rounded-lg px-3 py-2" style={{ background: "rgba(232,241,239,0.03)", border: "1px solid var(--line-soft)", opacity: s.active ? 1 : 0.5 }}>
-            <span className="mono text-[11px] text-[var(--ink-faint)] w-5">{i + 1}</span>
-            <span className={`text-[13px] flex-1 ${s.active ? "" : "line-through"}`}>{s.label}</span>
-            <button className="text-[var(--ink-faint)] hover:text-[var(--ink)] disabled:opacity-30 transition-colors" disabled={i === 0} onClick={() => moveStage(s.id, -1)} title="Move up">
-              <IChevronL size={14} className="rotate-90" />
-            </button>
-            <button className="text-[var(--ink-faint)] hover:text-[var(--ink)] disabled:opacity-30 transition-colors" disabled={i === stages.length - 1} onClick={() => moveStage(s.id, 1)} title="Move down">
-              <IChevronR size={14} className="rotate-90" />
-            </button>
-            <button className="text-[11px] mono text-[var(--ink-faint)] hover:text-[var(--amber)] transition-colors" onClick={() => toggleMaster("stages", s.id)}>
-              {s.active ? "active" : "off"}
-            </button>
-            <button
-              className="text-[var(--ink-faint)] hover:text-[var(--coral)] transition-colors"
-              title="Delete"
-              onClick={() => {
-                const err = deleteMaster("stages", s.id);
-                if (err) toast("error", err);
-                else toast("info", `"${s.label}" removed.`);
-              }}
-            >
-              <ITrash size={14} />
-            </button>
-          </li>
-        ))}
-      </ol>
-    </Section>
-  );
-}
-
-function SlaManager() {
-  const { db, addSlaRule, updateSlaRule, toggleSlaRule, deleteSlaRule, toast } = useStore();
-  const stages = [...db.stages].filter((s) => s.active).sort((a, b) => a.sortOrder - b.sortOrder);
-  const [stage, setStage] = useState(stages[0]?.label ?? "");
-  const [bank, setBank] = useState("");
-  const [days, setDays] = useState("5");
-  const rules = [...db.slaRules].sort((a, b) => {
-    const sa = stages.findIndex((s) => s.label === a.stage);
-    const sb = stages.findIndex((s) => s.label === b.stage);
-    return sa - sb || (a.bank ?? "").localeCompare(b.bank ?? "");
-  });
-
-  const add = () => {
-    const d = parseInt(days, 10);
-    const err = addSlaRule({ stage, bank: bank || null, maxDays: Number.isNaN(d) ? 0 : d });
-    if (err) return toast("error", err);
-    toast("success", `SLA saved: ${stage}${bank ? ` · ${bank}` : ""} → ${d}d.`);
-  };
-
-  return (
-    <Section title="SLA rules" sub="How many days a stage may take before it escalates. Bank-specific rules override the generic one." wide>
-      <div className="flex flex-wrap gap-2 mb-3">
-        <select className="select" style={{ width: 190 }} value={stage} onChange={(e) => setStage(e.target.value)}>
-          {stages.map((s) => <option key={s.id}>{s.label}</option>)}
-        </select>
-        <select className="select" style={{ width: 160 }} value={bank} onChange={(e) => setBank(e.target.value)}>
-          <option value="">All banks</option>
-          {db.banks.filter((b) => b.active).map((b) => <option key={b.id}>{b.label}</option>)}
-        </select>
-        <input className="input mono" style={{ width: 90 }} type="number" min="1" value={days} onChange={(e) => setDays(e.target.value)} />
-        <button className="btn btn-ghost" onClick={add}>
-          <IPlus size={14} /> Add rule
-        </button>
-      </div>
-
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
-        {rules.map((r: SlaRule) => (
-          <div key={r.id} className="flex items-center gap-3 rounded-lg px-3 py-2.5" style={{ background: "rgba(232,241,239,0.03)", border: "1px solid var(--line-soft)", opacity: r.active ? 1 : 0.5 }}>
-            <div className="min-w-0 flex-1">
-              <div className="text-[13px] truncate">{r.stage}</div>
-              <div className="text-[11px] text-[var(--ink-faint)]">{r.bank ? `${r.bank} override` : "all banks"}</div>
-            </div>
-            <span className="text-[11px] text-[var(--ink-faint)]">max</span>
-            <input
-              className="input mono"
-              style={{ width: 64, padding: "4px 8px" }}
-              type="number"
-              min="1"
-              value={r.maxDays}
-              onChange={(e) => updateSlaRule(r.id, parseInt(e.target.value, 10) || 1)}
-            />
-            <span className="text-[11px] text-[var(--ink-faint)]">days</span>
-            <button className="text-[11px] mono text-[var(--ink-faint)] hover:text-[var(--amber)] transition-colors" onClick={() => toggleSlaRule(r.id)}>
-              {r.active ? "on" : "off"}
-            </button>
-            <button className="text-[var(--ink-faint)] hover:text-[var(--coral)] transition-colors" onClick={() => { deleteSlaRule(r.id); toast("info", "Rule deleted."); }}>
-              <ITrash size={14} />
-            </button>
-          </div>
-        ))}
-      </div>
-      {rules.length === 0 && <p className="text-[12.5px] text-[var(--ink-faint)]">No rules yet — nothing can escalate.</p>}
-    </Section>
-  );
-}
-
-function UserModal({ editing, onClose }: { editing: User | null; onClose: () => void }) {
-  const { saveUser, toast, db } = useStore();
-  const isNew = editing === null;
-  const [form, setForm] = useState<User>(
-    editing ?? { id: 0, name: "", email: "", password: "demo123", role: "SPO", team: "Mumbai North", active: true, createdAt: new Date().toISOString() }
-  );
-  const [err, setErr] = useState("");
-
-  const submit = () => {
-    if (!form.name.trim()) return setErr("Name is required.");
-    if (!/^\S+@\S+\.\S+$/.test(form.email)) return setErr("Enter a valid email.");
-    if (db.users.some((u) => u.id !== form.id && u.email.toLowerCase() === form.email.toLowerCase())) return setErr("That email is already taken.");
-    if (!form.password) return setErr("Password is required.");
-    saveUser(form);
-    toast("success", isNew ? `${form.name} added to the team.` : `${form.name} updated.`);
-    onClose();
-  };
-
-  return (
-    <Modal onClose={onClose} title={isNew ? "Add teammate" : `Edit · ${editing?.name}`} width={480}>
-      <div className="grid grid-cols-2 gap-3">
-        <div className="col-span-2">
-          <label className="label">Full name</label>
-          <input className="input" value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} autoFocus />
-        </div>
-        <div className="col-span-2">
-          <label className="label">Email (login)</label>
-          <input className="input mono" value={form.email} onChange={(e) => setForm({ ...form, email: e.target.value })} placeholder="name@hfmc.in" />
-        </div>
-        <div>
-          <label className="label">Password</label>
-          <input className="input mono" value={form.password} onChange={(e) => setForm({ ...form, password: e.target.value })} />
-        </div>
-        <div>
-          <label className="label">Role</label>
-          <select className="select" value={form.role} onChange={(e) => setForm({ ...form, role: e.target.value as Role })}>
-            {(["Admin", "Team Lead", "SPO", "VRM"] as Role[]).map((r) => <option key={r}>{r}</option>)}
-          </select>
-        </div>
-        <div>
-          <label className="label">Team</label>
-          <input className="input" value={form.team} onChange={(e) => setForm({ ...form, team: e.target.value })} />
-        </div>
-        <div className="flex items-end">
-          <button
-            className="btn btn-ghost w-full justify-center"
-            style={form.active ? { color: "var(--mint)", borderColor: "rgba(67,214,155,0.35)" } : { color: "var(--coral)", borderColor: "rgba(242,115,99,0.35)" }}
-            onClick={() => setForm({ ...form, active: !form.active })}
-          >
-            {form.active ? "Active — click to deactivate" : "Deactivated — click to activate"}
-          </button>
-        </div>
-      </div>
-      {err && <p className="text-[12.5px] mt-2 mb-0" style={{ color: "var(--coral)" }}>{err}</p>}
-      <div className="flex justify-end gap-2 mt-5">
-        <button className="btn btn-ghost" onClick={onClose}>Cancel</button>
-        <button className="btn btn-primary" onClick={submit}>{isNew ? "Add teammate" : "Save changes"}</button>
-      </div>
-    </Modal>
-  );
-}
+const TEAMS = ["Management", "Dubai", "Abu Dhabi"];
 
 export default function Admin() {
-  const { db, session, deleteUser, toast } = useStore();
-  const [editing, setEditing] = useState<User | null>(null);
-  const [showAdd, setShowAdd] = useState(false);
-  const [deleting, setDeleting] = useState<User | null>(null);
+  const store = useStore();
+  const { db, session } = store;
+  const [tab, setTab] = useState("users");
 
-  if (session?.role !== "Admin") {
+  if (session?.role !== "Head of Company" && session?.role !== "Mortgage Head") {
     return (
       <div className="card p-10 text-center anim-fade-up">
-        <h2 className="font-disp font-semibold text-[18px] mb-2">Admin access required</h2>
-        <p className="text-[13px] text-[var(--ink-dim)]">User management, master lists and SLA rules are limited to Admins.</p>
+        <h2 className="font-disp font-semibold text-[18px] mb-2">Admin is for the Head of Company and Mortgage Head</h2>
+        <p className="text-[13px] text-[var(--ink-dim)]">Your role is {session?.role}. If you need a list changed, ask them — every change lands in the activity trail.</p>
       </div>
     );
   }
 
   return (
     <div className="space-y-4">
-      <div className="flex items-center justify-between">
-        <div>
-          <h1 className="font-disp font-bold text-[21px] tracking-tight m-0">Admin console</h1>
-          <p className="text-[12.5px] text-[var(--ink-faint)] mt-0.5 mb-0">Team, master lists and SLA rules — changes apply everywhere instantly.</p>
-        </div>
-        <button className="btn btn-primary" onClick={() => setShowAdd(true)}>
-          <IUsers size={15} /> Add teammate
+      <div className="flex flex-wrap gap-1.5">
+        {TABS.map((t) => (
+          <button
+            key={t.key}
+            className="chip transition-all"
+            style={
+              tab === t.key
+                ? { background: "rgba(242,176,76,0.14)", borderColor: "var(--amber)", color: "var(--amber)" }
+                : { background: "var(--bg2)", borderColor: "var(--line)", color: "var(--ink-faint)" }
+            }
+            onClick={() => setTab(t.key)}
+          >
+            {t.label}
+          </button>
+        ))}
+      </div>
+
+      {tab === "users" && <UsersTab />}
+      {tab === "banks" && <BanksTab />}
+      {tab === "partners" && <PartnersTab />}
+      {tab === "sla" && <SlaTab />}
+      {(tab === "stages" || tab === "whyPending" || tab === "waitingFor") && (
+        <MasterTab kind={tab as "stages" | "whyPending" | "waitingFor"} />
+      )}
+    </div>
+  );
+}
+
+/* ---------------- users ---------------- */
+
+function UsersTab() {
+  const { db, session, saveUser, deleteUser, toast } = useStore();
+  const [editing, setEditing] = useState<User | null>(null);
+  const [creating, setCreating] = useState(false);
+  const [deleting, setDeleting] = useState<User | null>(null);
+  const isHoC = session?.role === "Head of Company";
+
+  const blank = (): User => ({
+    id: 0, name: "", email: "", password: "demo123", role: "SPO", team: "Dubai", active: true, createdAt: "",
+  });
+
+  return (
+    <div className="card anim-fade-up">
+      <div className="flex items-center justify-between px-4 py-3 border-b" style={{ borderColor: "var(--line-soft)" }}>
+        <h3 className="font-disp font-semibold text-[14px] m-0">Teammates · {db.users.length}</h3>
+        <button className="btn btn-primary btn-sm" onClick={() => { setEditing(blank()); setCreating(true); }}>
+          <IPlus size={14} /> Add teammate
         </button>
       </div>
-
-      {/* users */}
-      <div className="card anim-fade-up">
-        <div className="px-4 py-3 border-b flex items-center justify-between" style={{ borderColor: "var(--line-soft)" }}>
-          <h3 className="font-disp font-semibold text-[14px] m-0">Team</h3>
-          <span className="mono text-[11.5px] text-[var(--ink-faint)]">{db.users.filter((u) => u.active).length} active · {db.users.length} total</span>
-        </div>
-        <div className="overflow-x-auto">
-          <table className="tbl">
-            <thead>
-              <tr><th>Name</th><th>Email</th><th>Role</th><th>Team</th><th>Joined</th><th>Status</th><th></th></tr>
-            </thead>
-            <tbody>
-              {db.users.map((u) => {
-                const openCases = db.cases.filter((c) => c.ownerId === u.id && c.caseStatus === "Active").length;
-                return (
-                  <tr key={u.id} style={{ cursor: "default", opacity: u.active ? 1 : 0.55 }}>
-                    <td>
-                      <div className="flex items-center gap-2.5">
-                        <Avatar name={u.name} size={28} />
-                        <div>
-                          <div className="font-medium text-[13px]">{u.name}</div>
-                          <div className="text-[11px] text-[var(--ink-faint)]">{openCases} active case{openCases === 1 ? "" : "s"}</div>
-                        </div>
-                      </div>
-                    </td>
-                    <td className="mono text-[12px] text-[var(--ink-dim)]">{u.email}</td>
-                    <td>
-                      <Chip tone={u.role === "Admin" ? "coral" : u.role === "Team Lead" ? "sky" : u.role === "VRM" ? "mint" : "amber"}>{u.role}</Chip>
-                    </td>
-                    <td className="text-[12.5px] text-[var(--ink-dim)]">{u.team}</td>
-                    <td className="text-[12px] text-[var(--ink-faint)]">{fmtDate(u.createdAt)}</td>
-                    <td>{u.active ? <Chip tone="mint">Active</Chip> : <Chip tone="slate">Deactivated</Chip>}</td>
-                    <td>
-                      <div className="flex justify-end gap-1.5">
-                        <button className="btn btn-ghost btn-sm" onClick={() => setEditing(u)} title="Edit">
-                          <IPencil size={13} />
-                        </button>
-                        {u.id !== session.id && (
-                          <button className="btn btn-ghost btn-sm" style={{ color: "var(--coral)" }} onClick={() => setDeleting(u)} title="Delete">
-                            <ITrash size={13} />
-                          </button>
-                        )}
-                      </div>
-                    </td>
-                  </tr>
-                );
-              })}
-            </tbody>
-          </table>
-        </div>
+      <div className="divide-y" style={{ borderColor: "var(--line-soft)" }}>
+        {[...db.users].sort((a, b) => ROLE_SENIORITY.indexOf(a.role) - ROLE_SENIORITY.indexOf(b.role)).map((u) => (
+          <div key={u.id} className="px-4 py-3 flex flex-wrap items-center gap-3" style={{ borderColor: "var(--line-soft)", opacity: u.active ? 1 : 0.55 }}>
+            <Avatar name={u.name} size={30} />
+            <div className="min-w-[180px]">
+              <div className="text-[13px] font-medium flex items-center gap-2">
+                {u.name}
+                {u.id === session?.id && <Chip tone="mint">you</Chip>}
+                {!u.active && <Chip tone="coral">inactive</Chip>}
+              </div>
+              <div className="text-[11.5px] text-[var(--ink-faint)]">{u.email}</div>
+            </div>
+            <Chip tone={u.role === "Head of Company" ? "amber" : u.role === "PA to HoC" ? "sky" : u.role === "Mortgage Head" ? "amber" : u.role.startsWith("Team Leader") ? "sky" : "slate"}>{u.role}</Chip>
+            <span className="text-[11.5px] text-[var(--ink-faint)]">team {u.team}</span>
+            <div className="ml-auto flex gap-1.5">
+              <button className="btn btn-ghost btn-sm" onClick={() => { setEditing({ ...u }); setCreating(false); }}><IPencil size={13} /> Edit</button>
+              {isHoC && u.id !== session?.id && u.role !== "Head of Company" && (
+                <button className="btn btn-danger btn-sm" onClick={() => setDeleting(u)}><ITrash size={13} /></button>
+              )}
+            </div>
+          </div>
+        ))}
       </div>
 
-      {/* masters + sla */}
-      <div className="grid grid-cols-1 xl:grid-cols-2 gap-4 items-start">
-        <StagesManager />
-        <div className="space-y-4">
-          <MasterList kind="whyPending" title="Why-pending reasons" sub="The blockers a task can be tagged with." hint="e.g. NOC pending from society" />
-          <MasterList kind="waitingFor" title="Waiting-for types" sub="Who holds the clock right now." hint="e.g. Insurance" />
-          <MasterList kind="banks" title="Banks" sub="The lender list used on cases and the calculator." hint="e.g. Yes Bank" />
-        </div>
-        <SlaManager />
-      </div>
-
-      {(showAdd || editing) && <UserModal editing={editing} onClose={() => { setShowAdd(false); setEditing(null); }} />}
+      {editing && (
+        <Modal title={creating ? "Add teammate" : `Edit · ${editing.name}`} onClose={() => setEditing(null)} width={460}>
+          <div className="grid grid-cols-2 gap-3">
+            <div className="col-span-2">
+              <label className="label">Full name</label>
+              <input className="input" value={editing.name} onChange={(e) => setEditing({ ...editing, name: e.target.value })} />
+            </div>
+            <div>
+              <label className="label">Email</label>
+              <input className="input" value={editing.email} onChange={(e) => setEditing({ ...editing, email: e.target.value })} />
+            </div>
+            <div>
+              <label className="label">Password</label>
+              <input className="input mono" value={editing.password} onChange={(e) => setEditing({ ...editing, password: e.target.value })} />
+            </div>
+            <div>
+              <label className="label">Role</label>
+              <select className="select" value={editing.role} onChange={(e) => setEditing({ ...editing, role: e.target.value as Role })}>
+                {ROLE_SENIORITY.map((r) => <option key={r}>{r}</option>)}
+              </select>
+            </div>
+            <div>
+              <label className="label">Team</label>
+              <select className="select" value={editing.team} onChange={(e) => setEditing({ ...editing, team: e.target.value })}>
+                {TEAMS.map((t) => <option key={t}>{t}</option>)}
+              </select>
+            </div>
+            <div className="col-span-2 flex items-center gap-2">
+              <input type="checkbox" id="active" checked={editing.active} onChange={(e) => setEditing({ ...editing, active: e.target.checked })} />
+              <label htmlFor="active" className="text-[12.5px] text-[var(--ink-dim)]">Active — can sign in and own cases</label>
+            </div>
+          </div>
+          <div className="flex justify-end gap-2 mt-5">
+            <button className="btn btn-ghost" onClick={() => setEditing(null)}>Cancel</button>
+            <button
+              className="btn btn-primary"
+              onClick={() => {
+                if (!editing.name.trim() || !editing.email.trim()) return toast("error", "Name and email are required.");
+                if (db.users.some((x) => x.id !== editing.id && x.email.toLowerCase() === editing.email.toLowerCase()))
+                  return toast("error", "That email is already taken.");
+                saveUser(editing);
+                toast("success", creating ? `${editing.name} added to the team.` : "Teammate updated.");
+                setEditing(null);
+              }}
+            >
+              Save
+            </button>
+          </div>
+        </Modal>
+      )}
 
       <ConfirmModal
-        open={deleting !== null}
+        open={!!deleting}
         onClose={() => setDeleting(null)}
         title={`Remove ${deleting?.name}?`}
-        body={
-          <span>
-            Their login stops working immediately. Deletion is blocked while they still own cases or open tasks —
-            {deleting ? ` they currently own ${db.cases.filter((c) => c.ownerId === deleting.id).length} case(s).` : ""}
-          </span>
-        }
-        confirmLabel="Remove teammate"
+        body="They'll be removed from the team. This is blocked if they still own cases or open tasks."
+        confirmLabel="Remove"
         onConfirm={() => {
           if (!deleting) return;
           const err = deleteUser(deleting.id);
           if (err) toast("error", err);
-          else toast("info", `${deleting.name} removed.`);
+          else toast("success", `${deleting.name} removed.`);
         }}
       />
+    </div>
+  );
+}
 
-      <p className="text-[11px] text-[var(--ink-faint)] m-0">
-        Signed in as {session.name} · data snapshot {relTime(new Date().toISOString())}
-      </p>
+/* ---------------- banks & rates ---------------- */
+
+function BanksTab() {
+  const { db, addBank, updateBankRate, toggleBank, deleteBank, toast } = useStore();
+  const [name, setName] = useState("");
+  const [rate, setRate] = useState("0.8");
+
+  return (
+    <div className="card anim-fade-up">
+      <div className="px-4 py-3 border-b" style={{ borderColor: "var(--line-soft)" }}>
+        <h3 className="font-disp font-semibold text-[14px] m-0">Banks & commission rates</h3>
+        <p className="text-[11.5px] text-[var(--ink-faint)] mt-0.5 mb-0">Our commission as % of loan amount. Every change re-computes earnings reports instantly.</p>
+      </div>
+
+      <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-2.5 p-4">
+        {[...db.banks].sort((a, b) => b.ratePct - a.ratePct).map((b) => (
+          <div key={b.id} className="rounded-lg p-3 flex items-center gap-2.5" style={{ background: "rgba(232,241,239,0.02)", border: "1px solid var(--line-soft)", opacity: b.active ? 1 : 0.5 }}>
+            <div className="min-w-0 flex-1">
+              <div className="text-[13px] font-medium truncate">{b.name}</div>
+              <div className="mono text-[11px]" style={{ color: b.ratePct >= 0.9 ? "var(--mint)" : "var(--ink-faint)" }}>{fmtRate(b.ratePct)} of loan amount</div>
+            </div>
+            <input
+              className="input mono !w-[74px] !py-1 text-[12px] text-center"
+              type="number"
+              step={0.025}
+              min={0}
+              max={10}
+              value={b.ratePct}
+              onChange={(e) => updateBankRate(b.id, Number(e.target.value) || 0)}
+            />
+            <button className="btn btn-ghost btn-sm !px-2" title={b.active ? "Deactivate" : "Activate"} onClick={() => { toggleBank(b.id); toast("info", `${b.name} ${b.active ? "deactivated" : "activated"}.`); }}>
+              <span className="w-2 h-2 rounded-full" style={{ background: b.active ? "var(--mint)" : "var(--ink-faint)" }} />
+            </button>
+            <button className="btn btn-ghost btn-sm !px-2 text-[var(--ink-faint)] hover:text-[var(--coral)]" onClick={() => {
+              const err = deleteBank(b.id);
+              if (err) toast("error", err);
+              else toast("success", `${b.name} removed.`);
+            }}>
+              <ITrash size={13} />
+            </button>
+          </div>
+        ))}
+      </div>
+
+      <div className="flex flex-wrap items-end gap-2 px-4 py-3 border-t" style={{ borderColor: "var(--line-soft)" }}>
+        <div>
+          <label className="label">New bank</label>
+          <input className="input" style={{ width: 170 }} placeholder="e.g. RAKBANK" value={name} onChange={(e) => setName(e.target.value)} />
+        </div>
+        <div>
+          <label className="label">Rate %</label>
+          <input className="input mono" style={{ width: 90 }} type="number" step={0.025} value={rate} onChange={(e) => setRate(e.target.value)} />
+        </div>
+        <button className="btn btn-primary btn-sm" onClick={() => {
+          const err = addBank(name, Number(rate));
+          if (err) toast("error", err);
+          else { toast("success", `${name.trim()} added at ${rate}%.`); setName(""); }
+        }}>
+          <IPlus size={13} /> Add bank
+        </button>
+      </div>
+    </div>
+  );
+}
+
+/* ---------------- partners ---------------- */
+
+function PartnersTab() {
+  const { db, addPartner, updatePartnerShare, togglePartner, deletePartner, toast } = useStore();
+  const [kind, setKind] = useState<PartnerKind>("Agent");
+  const [name, setName] = useState("");
+  const [share, setShare] = useState("20");
+  const [filter, setFilter] = useState<"All" | PartnerKind>("All");
+
+  const list = db.partners.filter((p) => filter === "All" || p.kind === filter);
+
+  return (
+    <div className="card anim-fade-up">
+      <div className="flex flex-wrap items-center gap-2 px-4 py-3 border-b" style={{ borderColor: "var(--line-soft)" }}>
+        <div>
+          <h3 className="font-disp font-semibold text-[14px] m-0">Agents, brokers & referrers</h3>
+          <p className="text-[11.5px] text-[var(--ink-faint)] mt-0.5 mb-0">Names offered when a case is sourced through them. Their payout = share × our bank commission.</p>
+        </div>
+        <div className="ml-auto flex gap-1.5">
+          {(["All", "Agent", "Broker", "Referral"] as const).map((k) => (
+            <button key={k} className="chip transition-all" onClick={() => setFilter(k)} style={filter === k ? { background: "rgba(242,176,76,0.14)", borderColor: "var(--amber)", color: "var(--amber)" } : { background: "var(--bg2)", borderColor: "var(--line)", color: "var(--ink-faint)" }}>
+              {k}
+            </button>
+          ))}
+        </div>
+      </div>
+
+      <div className="divide-y" style={{ borderColor: "var(--line-soft)" }}>
+        {list.map((p) => {
+          const casesWith = db.cases.filter((c) => c.partner?.name === p.name).length;
+          return (
+            <div key={p.id} className="px-4 py-3 flex flex-wrap items-center gap-3" style={{ borderColor: "var(--line-soft)", opacity: p.active ? 1 : 0.5 }}>
+              <Avatar name={p.name} size={28} />
+              <div className="min-w-[170px]">
+                <div className="text-[13px] font-medium">{p.name}</div>
+                <div className="text-[11px] text-[var(--ink-faint)]">{casesWith} case{casesWith === 1 ? "" : "s"} sourced</div>
+              </div>
+              <Chip tone={p.kind === "Agent" ? "amber" : p.kind === "Broker" ? "sky" : "coral"}>{p.kind}</Chip>
+              <span className="text-[11.5px] text-[var(--ink-faint)]">default share</span>
+              <input
+                className="input mono !w-[70px] !py-1 text-[12px] text-center"
+                type="number"
+                min={1}
+                max={100}
+                value={p.defaultSharePct}
+                onChange={(e) => updatePartnerShare(p.id, Math.max(1, Math.min(100, Number(e.target.value) || 1)))}
+              />
+              <span className="mono text-[11.5px] text-[var(--ink-faint)]">%</span>
+              <div className="ml-auto flex gap-1.5">
+                <button className="btn btn-ghost btn-sm !px-2" title={p.active ? "Deactivate" : "Activate"} onClick={() => togglePartner(p.id)}>
+                  <span className="w-2 h-2 rounded-full" style={{ background: p.active ? "var(--mint)" : "var(--ink-faint)" }} />
+                </button>
+                <button className="btn btn-ghost btn-sm !px-2 text-[var(--ink-faint)] hover:text-[var(--coral)]" onClick={() => {
+                  const err = deletePartner(p.id);
+                  if (err) toast("error", err);
+                  else toast("success", `${p.name} removed.`);
+                }}>
+                  <ITrash size={13} />
+                </button>
+              </div>
+            </div>
+          );
+        })}
+        {list.length === 0 && <p className="text-[12.5px] text-[var(--ink-faint)] p-4 m-0">No {filter === "All" ? "partners" : filter.toLowerCase() + "s"} yet.</p>}
+      </div>
+
+      <div className="flex flex-wrap items-end gap-2 px-4 py-3 border-t" style={{ borderColor: "var(--line-soft)" }}>
+        <div>
+          <label className="label">Kind</label>
+          <select className="select" style={{ width: 110 }} value={kind} onChange={(e) => setKind(e.target.value as PartnerKind)}>
+            <option>Agent</option>
+            <option>Broker</option>
+            <option>Referral</option>
+          </select>
+        </div>
+        <div>
+          <label className="label">Name</label>
+          <input className="input" style={{ width: 190 }} placeholder={kind === "Referral" ? "e.g. Nasser Al Mansoori" : `e.g. ${kind} name`} value={name} onChange={(e) => setName(e.target.value)} />
+        </div>
+        <div>
+          <label className="label">Default share %</label>
+          <input className="input mono" style={{ width: 90 }} type="number" min={1} max={100} value={share} onChange={(e) => setShare(e.target.value)} />
+        </div>
+        <button className="btn btn-primary btn-sm" onClick={() => {
+          const err = addPartner(kind, name, Number(share));
+          if (err) toast("error", err);
+          else { toast("success", `${name.trim()} added as ${kind.toLowerCase()} @ ${share}%.`); setName(""); }
+        }}>
+          <IPlus size={13} /> Add {kind.toLowerCase()}
+        </button>
+      </div>
+    </div>
+  );
+}
+
+/* ---------------- generic master list ---------------- */
+
+function MasterTab({ kind }: { kind: "stages" | "whyPending" | "waitingFor" }) {
+  const { db, addMaster, toggleMaster, deleteMaster, moveStage, toast } = useStore();
+  const [label, setLabel] = useState("");
+  const title = kind === "stages" ? "Workflow stages" : kind === "whyPending" ? "Why pending reasons" : "Waiting-for types";
+  const items = kind === "stages" ? [...db.stages].sort((a, b) => a.sortOrder - b.sortOrder) : db[kind];
+
+  return (
+    <div className="card anim-fade-up">
+      <div className="px-4 py-3 border-b" style={{ borderColor: "var(--line-soft)" }}>
+        <h3 className="font-disp font-semibold text-[14px] m-0">{title}</h3>
+        <p className="text-[11.5px] text-[var(--ink-faint)] mt-0.5 mb-0">
+          {kind === "stages" ? "Ordered left-to-right on every Case 360. Deactivated stages disappear from pickers." : "Used across the task engine and reports. Deactivated items stop appearing in dropdowns."}
+        </p>
+      </div>
+      <div className="divide-y" style={{ borderColor: "var(--line-soft)" }}>
+        {items.map((m) => (
+          <div key={m.id} className="px-4 py-2.5 flex items-center gap-3" style={{ borderColor: "var(--line-soft)", opacity: m.active ? 1 : 0.5 }}>
+            {kind === "stages" && (
+              <>
+                <span className="mono text-[11px] text-[var(--ink-faint)] w-6">{kind === "stages" ? (m as unknown as { sortOrder: number }).sortOrder : ""}</span>
+                <button className="btn btn-ghost btn-sm !px-1.5 !py-1" onClick={() => moveStage(m.id, -1)}><IChevronL size={13} /></button>
+                <button className="btn btn-ghost btn-sm !px-1.5 !py-1" onClick={() => moveStage(m.id, 1)}><IChevronR size={13} /></button>
+              </>
+            )}
+            <span className="text-[13px] flex-1">{m.label}</span>
+            <button className="btn btn-ghost btn-sm !px-2" title={m.active ? "Deactivate" : "Activate"} onClick={() => toggleMaster(kind, m.id)}>
+              <span className="w-2 h-2 rounded-full" style={{ background: m.active ? "var(--mint)" : "var(--ink-faint)" }} />
+            </button>
+            <button className="btn btn-ghost btn-sm !px-2 text-[var(--ink-faint)] hover:text-[var(--coral)]" onClick={() => {
+              const err = deleteMaster(kind, m.id);
+              if (err) toast("error", err);
+              else toast("success", `"${m.label}" deleted.`);
+            }}>
+              <IX size={13} />
+            </button>
+          </div>
+        ))}
+      </div>
+      <div className="flex items-end gap-2 px-4 py-3 border-t" style={{ borderColor: "var(--line-soft)" }}>
+        <div className="flex-1">
+          <label className="label">New label</label>
+          <input className="input" placeholder="e.g. Awaiting NOC from developer" value={label} onChange={(e) => setLabel(e.target.value)} onKeyDown={(e) => {
+            if (e.key === "Enter") {
+              const err = addMaster(kind, label);
+              if (err) toast("error", err);
+              else { toast("success", `"${label.trim()}" added.`); setLabel(""); }
+            }
+          }} />
+        </div>
+        <button className="btn btn-primary btn-sm" onClick={() => {
+          const err = addMaster(kind, label);
+          if (err) toast("error", err);
+          else { toast("success", `"${label.trim()}" added.`); setLabel(""); }
+        }}>
+          <IPlus size={13} /> Add
+        </button>
+      </div>
+    </div>
+  );
+}
+
+/* ---------------- SLA rules ---------------- */
+
+function SlaTab() {
+  const { db, saveSla, toggleSla, deleteSla, toast } = useStore();
+  const stages = [...db.stages].filter((s) => s.label !== "Closed").sort((a, b) => a.sortOrder - b.sortOrder);
+  const [stage, setStage] = useState(stages[0]?.label ?? "");
+  const [bank, setBank] = useState("All");
+  const [days, setDays] = useState("5");
+
+  return (
+    <div className="card anim-fade-up">
+      <div className="px-4 py-3 border-b" style={{ borderColor: "var(--line-soft)" }}>
+        <h3 className="font-disp font-semibold text-[14px] m-0">SLA rules</h3>
+        <p className="text-[11.5px] text-[var(--ink-faint)] mt-0.5 mb-0">Max days a case may sit in a stage before it escalates. Bank-specific rules override the default.</p>
+      </div>
+      <div className="divide-y" style={{ borderColor: "var(--line-soft)" }}>
+        {[...db.slaRules].sort((a, b) => a.stage.localeCompare(b.stage)).map((r) => (
+          <div key={r.id} className="px-4 py-2.5 flex items-center gap-3" style={{ borderColor: "var(--line-soft)", opacity: r.active ? 1 : 0.5 }}>
+            <Chip tone="slate">{r.stage}</Chip>
+            {r.bank ? <Chip tone="sky">{r.bank}</Chip> : <span className="text-[11.5px] text-[var(--ink-faint)]">all banks</span>}
+            <span className="ml-auto text-[12.5px] text-[var(--ink-dim)]">max</span>
+            <input
+              className="input mono !w-[64px] !py-1 text-[12px] text-center"
+              type="number"
+              min={1}
+              value={r.maxDays}
+              onChange={(e) => saveSla({ ...r, maxDays: Math.max(1, Number(e.target.value) || 1) })}
+            />
+            <span className="text-[12px] text-[var(--ink-faint)]">days</span>
+            <button className="btn btn-ghost btn-sm !px-2" title={r.active ? "Deactivate" : "Activate"} onClick={() => toggleSla(r.id)}>
+              <span className="w-2 h-2 rounded-full" style={{ background: r.active ? "var(--mint)" : "var(--ink-faint)" }} />
+            </button>
+            <button className="btn btn-ghost btn-sm !px-2 text-[var(--ink-faint)] hover:text-[var(--coral)]" onClick={() => { deleteSla(r.id); toast("info", "SLA rule removed."); }}>
+              <IX size={13} />
+            </button>
+          </div>
+        ))}
+        {db.slaRules.length === 0 && <p className="text-[12.5px] text-[var(--ink-faint)] p-4 m-0">No SLA rules — nothing will escalate.</p>}
+      </div>
+      <div className="flex flex-wrap items-end gap-2 px-4 py-3 border-t" style={{ borderColor: "var(--line-soft)" }}>
+        <div>
+          <label className="label">Stage</label>
+          <select className="select" style={{ width: 170 }} value={stage} onChange={(e) => setStage(e.target.value)}>
+            {stages.map((s) => <option key={s.id}>{s.label}</option>)}
+          </select>
+        </div>
+        <div>
+          <label className="label">Bank override</label>
+          <select className="select" style={{ width: 140 }} value={bank} onChange={(e) => setBank(e.target.value)}>
+            <option>All</option>
+            {db.banks.map((b) => <option key={b.id}>{b.name}</option>)}
+          </select>
+        </div>
+        <div>
+          <label className="label">Max days</label>
+          <input className="input mono" style={{ width: 80 }} type="number" min={1} value={days} onChange={(e) => setDays(e.target.value)} />
+        </div>
+        <button className="btn btn-primary btn-sm" onClick={() => {
+          const d = Number(days);
+          if (!d || d < 1) return toast("error", "Enter a valid number of days.");
+          saveSla({ stage, bank: bank === "All" ? null : bank, maxDays: d, active: true });
+          toast("success", `SLA saved: ${stage} · ${bank === "All" ? "all banks" : bank} · ${d}d.`);
+        }}>
+          <IPlus size={13} /> Add rule
+        </button>
+      </div>
     </div>
   );
 }
