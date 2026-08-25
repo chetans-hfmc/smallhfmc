@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import type { ReactNode } from "react";
 import { useStore } from "../lib/store";
 import type { AffordabilityCheck } from "../lib/types";
@@ -10,10 +10,11 @@ import {
 } from "../lib/mortgage";
 import type { Frequency, IncomeRow, LiabRow, MortgageInput, MortgageResult } from "../lib/mortgage";
 import { generateMortgagePdf } from "../lib/pdf";
+import type { PdfScenarioTable } from "../lib/pdf";
 import { relTime } from "../lib/format";
 import { Avatar, Chip } from "../components/ui";
 import { useCountUp } from "../components/charts";
-import { IArrowR, ICalc, IPlus, ITrash, IX } from "../components/icons";
+import { IArrowR, ICalc, IDownload, IEye, IPlus, ITrash, IX } from "../components/icons";
 
 /* ---------- small building blocks ---------- */
 
@@ -70,6 +71,7 @@ export default function Calculator() {
   const { db, session, nav, toast, userById, saveMortgageCheck, createCaseFromCheck, linkCheckToCase } = useStore();
   const [input, setInput] = useState<MortgageInput>(defaultInput);
   const [savedId, setSavedId] = useState<number | null>(null);
+  const [preview, setPreview] = useState<{ input: MortgageInput; res: MortgageResult; tables: PdfScenarioTable[]; by: string } | null>(null);
   const [whif, setWhif] = useState<WhifTab>("liab");
   const [cardId, setCardId] = useState("");
   const [cardLimit, setCardLimit] = useState("");
@@ -201,32 +203,37 @@ export default function Calculator() {
     }
   };
 
-  const onPdf = () => {
+  const buildScenarioTables = (): PdfScenarioTable[] => {
     const liabRows = runScenarios(liabScenarios);
     const rateRows = runScenarios(rateScenarios);
     const tenorRows = runScenarios(tenorScenarios);
     const incomeRows = runScenarios(incomeScenarios);
+    const delta = (v: number) => (v >= 0 ? "+" : "−") + fmtAED(Math.abs(v));
     const mk = (title: string, head: string[], rows: { label: string }[], cells: (row: (typeof liabRows)[number], i: number) => (string | number)[]) => ({
       title, head,
       body: rows.map((row, i) => [row.label, ...cells(row as (typeof liabRows)[number], i)]),
     });
-    generateMortgagePdf(
-      input, r,
-      [
-        mk("Liability scenarios", ["Scenario", "Current DBR", "Residual DBR", "MPBF", "Change"], [{ label: "Current (baseline)" }, ...liabRows], (row, i) =>
-          i === 0
-            ? [fmtPct(r.currentDbr), fmtPct(r.residualDbr), fmtAED(r.finalMpbf), "—"]
-            : [fmtPct(row.dbr), fmtPct(row.residual), fmtAED(row.mpbf), (row.mpbf - r.finalMpbf >= 0 ? "+" : "") + fmtAED(row.mpbf - r.finalMpbf)]),
-        mk("Rate scenarios", ["Scenario", "Assessment rate", "MPBF", "Change"], [{ label: `Current (${r.assessmentRate.toFixed(2)}%)` }, ...rateRows], (row, i) =>
-          i === 0 ? [fmtPct(r.assessmentRate), fmtAED(r.finalMpbf), "—"] : [fmtPct(row.rate), fmtAED(row.mpbf), (row.mpbf - r.finalMpbf >= 0 ? "+" : "") + fmtAED(row.mpbf - r.finalMpbf)]),
-        mk("Tenor scenarios", ["Scenario", "Tenor", "MPBF", "Change"], [{ label: `Current max (${tenorLabel(r.maxTenorMonths)})` }, ...tenorRows], (row, i) =>
-          i === 0 ? [tenorLabel(r.maxTenorMonths), fmtAED(r.finalMpbf), "—"] : [tenorLabel(row.tenor), fmtAED(row.mpbf), (row.mpbf - r.finalMpbf >= 0 ? "+" : "") + fmtAED(row.mpbf - r.finalMpbf)]),
-        mk("Income scenarios", ["Scenario", "Eligible income", "MPBF", "Change"], [{ label: "Current (baseline)" }, ...incomeRows], (row, i) =>
-          i === 0 ? [fmtAED(r.eligibleIncome), fmtAED(r.finalMpbf), "—"] : [fmtAED(row.extra), fmtAED(row.mpbf), (row.mpbf - r.finalMpbf >= 0 ? "+" : "") + fmtAED(row.mpbf - r.finalMpbf)]),
-      ],
-      session?.name ?? "HFMC"
-    );
-    toast("success", "Bank-facing PDF generated.");
+    return [
+      mk("Liability scenarios", ["Scenario", "Current DBR", "Residual DBR", "MPBF", "Change"], [{ label: "Current (baseline)" }, ...liabRows], (row, i) =>
+        i === 0
+          ? [fmtPct(r.currentDbr), fmtPct(r.residualDbr), fmtAED(r.finalMpbf), "—"]
+          : [fmtPct(row.dbr), fmtPct(row.residual), fmtAED(row.mpbf), delta(row.mpbf - r.finalMpbf)]),
+      mk("Rate scenarios", ["Scenario", "Assessment rate", "MPBF", "Change"], [{ label: `Current (${r.assessmentRate.toFixed(2)}%)` }, ...rateRows], (row, i) =>
+        i === 0 ? [fmtPct(r.assessmentRate), fmtAED(r.finalMpbf), "—"] : [fmtPct(row.rate), fmtAED(row.mpbf), delta(row.mpbf - r.finalMpbf)]),
+      mk("Tenor scenarios", ["Scenario", "Tenor", "MPBF", "Change"], [{ label: `Current max (${tenorLabel(r.maxTenorMonths)})` }, ...tenorRows], (row, i) =>
+        i === 0 ? [tenorLabel(r.maxTenorMonths), fmtAED(r.finalMpbf), "—"] : [tenorLabel(row.tenor), fmtAED(row.mpbf), delta(row.mpbf - r.finalMpbf)]),
+      mk("Income scenarios", ["Scenario", "Eligible income", "MPBF", "Change"], [{ label: "Current (baseline)" }, ...incomeRows], (row, i) =>
+        i === 0 ? [fmtAED(r.eligibleIncome), fmtAED(r.finalMpbf), "—"] : [fmtAED(row.extra), fmtAED(row.mpbf), delta(row.mpbf - r.finalMpbf)]),
+    ];
+  };
+
+  const onPdf = () => {
+    generateMortgagePdf(input, r, buildScenarioTables(), session?.name ?? "HFMC");
+    toast("success", "Bank-facing PDF downloaded.");
+  };
+
+  const onView = () => {
+    setPreview({ input, res: r, tables: buildScenarioTables(), by: session?.name ?? "HFMC" });
   };
 
   /* ---------------- render ---------------- */
@@ -503,7 +510,8 @@ export default function Calculator() {
             </div>
 
             <div className="flex flex-col gap-2 mt-4">
-              <button className="btn btn-primary justify-center" onClick={onPdf}><IArrowR size={15} /> Generate bank-facing PDF</button>
+              <button className="btn btn-primary justify-center" onClick={onView}><IEye size={15} /> View bank-facing report</button>
+              <button className="btn btn-ghost justify-center" onClick={onPdf}><IDownload size={15} /> Download PDF</button>
               <div className="grid grid-cols-2 gap-2">
                 <button className="btn btn-mint justify-center" onClick={onSave}>Save check</button>
                 <button className="btn btn-ghost justify-center" onClick={onOpenCase}>Open case</button>
@@ -651,6 +659,12 @@ export default function Calculator() {
                         }}>
                           PDF
                         </button>
+                        <button className="btn btn-ghost btn-sm" onClick={() => {
+                          const ri = computeMortgage(parsed.input as MortgageInput);
+                          setPreview({ input: parsed.input as MortgageInput, res: ri, tables: [], by: session?.name ?? "HFMC" });
+                        }}>
+                          <IEye size={13} /> Report
+                        </button>
                       </>
                     )}
                     {k.caseId ? (
@@ -685,6 +699,302 @@ export default function Calculator() {
       <div className="flex items-center gap-2 text-[11.5px] text-[var(--ink-faint)] px-1">
         <Avatar name={session?.name ?? "?"} size={20} />
         Prepared by {session?.name} · figures follow CBUAE-style limits (50% DBR, {input.applicantType} LTV bands, 25y max tenor) — lender policy may differ.
+      </div>
+
+      {preview && (
+        <PreviewReport
+          data={preview}
+          onClose={() => setPreview(null)}
+          onPdf={() => generateMortgagePdf(preview.input, preview.res, preview.tables, preview.by)}
+        />
+      )}
+    </div>
+  );
+}
+
+/* ================= bank-facing report preview ================= */
+
+function Pkv({ rows }: { rows: [string, string][] }) {
+  return (
+    <div>
+      {rows.map(([k, v]) => (
+        <div key={k} className="paper-kv">
+          <span className="k">{k}</span>
+          <span className="dots" />
+          <span className="v">{v}</span>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function PreviewReport({
+  data,
+  onClose,
+  onPdf,
+}: {
+  data: { input: MortgageInput; res: MortgageResult; tables: PdfScenarioTable[]; by: string };
+  onClose: () => void;
+  onPdf: () => void;
+}) {
+  const { input: inp, res, tables, by } = data;
+
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => e.key === "Escape" && onClose();
+    window.addEventListener("keydown", onKey);
+    document.body.style.overflow = "hidden";
+    return () => {
+      window.removeEventListener("keydown", onKey);
+      document.body.style.overflow = "";
+    };
+  }, [onClose]);
+
+  const date = new Date().toLocaleDateString("en-GB", { day: "2-digit", month: "long", year: "numeric" });
+  const numTh = (t: string) => (
+    <th className="num">{t}</th>
+  );
+
+  return (
+    <div
+      className="fixed inset-0 z-[70] anim-fade-in"
+      style={{ background: "rgba(4, 12, 15, 0.8)", backdropFilter: "blur(4px)" }}
+      onClick={onClose}
+    >
+      <div className="h-full overflow-y-auto py-6 px-3 sm:px-6">
+        <div className="max-w-[800px] mx-auto" onClick={(e) => e.stopPropagation()}>
+          {/* toolbar */}
+          <div
+            className="card flex flex-wrap items-center gap-2 px-4 py-2.5 mb-5 sticky top-0 z-10"
+            style={{ background: "var(--raised)", boxShadow: "0 14px 40px -12px rgba(0,0,0,0.6)" }}
+          >
+            <IEye size={15} className="text-[var(--amber)]" />
+            <span className="font-disp font-semibold text-[13.5px]">Bank-facing report preview</span>
+            <span className="text-[11px] text-[var(--ink-faint)] hidden sm:inline">— exactly what the PDF contains</span>
+            <div className="ml-auto flex gap-2">
+              <button className="btn btn-primary btn-sm" onClick={onPdf}>
+                <IDownload size={13} /> Download PDF
+              </button>
+              <button className="btn btn-ghost btn-sm" onClick={onClose}>
+                <IX size={13} /> Close
+              </button>
+            </div>
+          </div>
+
+          {/* ---------- page 1 ---------- */}
+          <div className="mono text-[10px] uppercase tracking-[0.14em] text-[var(--ink-faint)] mb-1.5 px-1">Page 1 · Eligibility summary</div>
+          <div className="paper mb-7 anim-fade-up">
+            <div className="paper-band">
+              <div className="font-disp font-bold text-[17px] leading-tight">HFMC — Mortgage Eligibility Assessment</div>
+              <div className="text-[10.5px] opacity-75 mt-1">Preliminary assessment · not a bank approval or binding offer · {date}</div>
+            </div>
+            <div className="paper-body">
+              <div className="paper-sec">Applicant & Property</div>
+              <Pkv
+                rows={[
+                  ["Applicant", inp.name || "—"],
+                  ["Applicant type", `${inp.applicantType} · ${inp.employment}`],
+                  ["Property value", fmtAED(inp.propertyValue)],
+                  ["Bank valuation", inp.valuation ? fmtAED(inp.valuation) : "Not available"],
+                  ["Calculation basis", `${fmtAED(res.calcBasis)} (${res.basisLabel})`],
+                  ["Requested finance", inp.requested > 0 ? fmtAED(inp.requested) : "—"],
+                ]}
+              />
+              <div className="paper-sec">Eligibility Summary</div>
+              <Pkv
+                rows={[
+                  ["Eligible monthly income", fmtAED(res.eligibleIncome)],
+                  ["Existing monthly liabilities", fmtAED(res.existingEmis)],
+                  ["Current DBR", fmtPct(res.currentDbr)],
+                  ["Maximum DBR (CBUAE)", fmtPct(res.maxDbr)],
+                  ["Residual DBR", fmtPct(res.residualDbr)],
+                ]}
+              />
+              <div className="paper-sec">Loan Parameters</div>
+              <Pkv
+                rows={[
+                  ["Actual / contract rate", fmtPct(res.actualRate)],
+                  ["Stress load factor", `+ ${res.loadFactor.toFixed(2)}%`],
+                  ["Assessment rate", fmtPct(res.assessmentRate)],
+                  ["Current age", `${res.ageNowYears} years`],
+                  ["Age processing margin", `${inp.marginMonths} months`],
+                  ["Maximum tenor used", tenorLabel(res.maxTenorMonths)],
+                ]}
+              />
+              <div className="paper-sec">MPBF — Eligibility Tests</div>
+              <table className="paper-tbl">
+                <thead>
+                  <tr>
+                    <th>Eligibility test</th>
+                    {numTh("Maximum finance")}
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr><td>DBR / Residual DBR MPBF</td><td className="num">{fmtAED(res.dbrMpbf)}</td></tr>
+                  <tr><td>LTV MPBF ({fmtAED(res.calcBasis)} × {res.ltvPct}%)</td><td className="num">{fmtAED(res.ltvMpbf)}</td></tr>
+                  {res.multiplierCap != null && (
+                    <tr><td>Income multiplier cap</td><td className="num">{fmtAED(res.multiplierCap)}</td></tr>
+                  )}
+                  {inp.requested > 0 && (
+                    <tr><td>Requested finance</td><td className="num">{fmtAED(res.requested)}</td></tr>
+                  )}
+                </tbody>
+              </table>
+              <div className="paper-final">
+                <span className="font-disp font-bold text-[12px] tracking-[0.1em]">FINAL MPBF</span>
+                <span className="amt">{fmtAED(res.finalMpbf)}</span>
+              </div>
+              <Pkv
+                rows={[
+                  ["Limited by", res.limitedBy],
+                  ["Required down payment", fmtAED(res.downPayment)],
+                  ["Actual LTV", fmtPct(res.actualLtv)],
+                  ["Proposed mortgage EMI (actual rate)", `${fmtAED(res.newEmi)} / month`],
+                  ["DBR after proposed mortgage", fmtPct(res.dbrAfter)],
+                ]}
+              />
+            </div>
+          </div>
+
+          {/* ---------- page 2 ---------- */}
+          <div className="mono text-[10px] uppercase tracking-[0.14em] text-[var(--ink-faint)] mb-1.5 px-1">Page 2 · Supporting calculation</div>
+          <div className="paper mb-7 anim-fade-up">
+            <div className="paper-body">
+              <div className="paper-sec">Income Breakdown</div>
+              <table className="paper-tbl">
+                <thead>
+                  <tr>
+                    <th>Source</th>
+                    <th>Frequency</th>
+                    {numTh("Amount")}
+                    {numTh("Elig %")}
+                    {numTh("Monthly")}
+                  </tr>
+                </thead>
+                <tbody>
+                  {inp.incomes.length === 0 && (
+                    <tr><td colSpan={5}>No income entered</td></tr>
+                  )}
+                  {inp.incomes.map((row) => (
+                    <tr key={row.id}>
+                      <td>{row.source}</td>
+                      <td>{row.frequency}</td>
+                      <td className="num">{fmtAED(row.amount)}</td>
+                      <td className="num">{row.eligiblePct}%</td>
+                      <td className="num">{fmtAED(incomeMonthly(row))}</td>
+                    </tr>
+                  ))}
+                </tbody>
+                <tfoot>
+                  <tr>
+                    <td colSpan={4}>Eligible monthly income</td>
+                    <td className="num">{fmtAED(res.eligibleIncome)}</td>
+                  </tr>
+                </tfoot>
+              </table>
+
+              <div className="paper-sec">Liability Breakdown</div>
+              <table className="paper-tbl">
+                <thead>
+                  <tr>
+                    <th>Liability</th>
+                    <th>Type</th>
+                    {numTh("Limit / Outstanding")}
+                    <th>Method</th>
+                    {numTh("Assessed EMI")}
+                  </tr>
+                </thead>
+                <tbody>
+                  {inp.liabilities.length === 0 && (
+                    <tr><td colSpan={5}>No liabilities declared</td></tr>
+                  )}
+                  {inp.liabilities.map((row) => (
+                    <tr key={row.id}>
+                      <td>{row.name}</td>
+                      <td>{row.type}</td>
+                      <td className="num">{fmtAED(row.limitOrOutstanding)}</td>
+                      <td>{row.method}</td>
+                      <td className="num">{fmtAED(liabilityEmi(row))}</td>
+                    </tr>
+                  ))}
+                </tbody>
+                <tfoot>
+                  <tr>
+                    <td colSpan={4}>Existing monthly liabilities</td>
+                    <td className="num">{fmtAED(res.existingEmis)}</td>
+                  </tr>
+                </tfoot>
+              </table>
+
+              <div className="paper-sec">Rate, Stress & Tenor</div>
+              <Pkv
+                rows={[
+                  ["Assessment basis", `${fmtPct(res.actualRate)} actual + ${res.loadFactor.toFixed(2)}% load = ${fmtPct(res.assessmentRate)} assessment`],
+                  ["Age calculation", `${res.ageNowYears}y now + ${inp.marginMonths}m margin → final age ${inp.finalAge} → ${tenorLabel(res.remainingMonths)} available`],
+                  ["Tenor used", `${tenorLabel(res.maxTenorMonths)}${inp.tenorOverrideMonths ? " (manual override)" : " (age-constrained)"}`],
+                  ["LTV applied", `${res.ltvPct}% — ${inp.applicantType}${res.calcBasis > 5000000 ? ", above AED 5M band" : ", up to AED 5M band"}`],
+                ]}
+              />
+
+              <div className="paper-sec">Calculation Trail</div>
+              <div className="paper-trail">
+                {res.trail.map((t, i) => (
+                  <div key={i}>{t}</div>
+                ))}
+              </div>
+            </div>
+          </div>
+
+          {/* ---------- page 3 ---------- */}
+          <div className="mono text-[10px] uppercase tracking-[0.14em] text-[var(--ink-faint)] mb-1.5 px-1">Page 3 · What-if analysis</div>
+          <div className="paper mb-7 anim-fade-up">
+            <div className="paper-body">
+              {tables.length === 0 && (
+                <p className="text-[11.5px] m-0" style={{ color: "#5b6367" }}>
+                  No what-if scenarios were captured for this saved check. Re-run the assessment to include them.
+                </p>
+              )}
+              {tables.map((t) => (
+                <div key={t.title}>
+                  <div className="paper-sec">{t.title}</div>
+                  <table className="paper-tbl">
+                    <thead>
+                      <tr>
+                        {t.head.map((h, i) => (
+                          <th key={h} className={i > 0 ? "num" : ""}>{h}</th>
+                        ))}
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {t.body.map((row, ri) => (
+                        <tr key={ri}>
+                          {row.map((cell, ci) => (
+                            <td key={ci} className={ci > 0 ? "num" : ""}>{cell}</td>
+                          ))}
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              ))}
+
+              <p className="text-[10px] italic mt-5 mb-3" style={{ color: "#7a8286" }}>
+                These figures are indicative and based solely on the inputs provided, CBUAE-style DBR/LTV limits and the lender age
+                policy selected. They do not constitute a bank approval, sanction or binding offer. Final eligibility, pricing and
+                tenor are at the sole discretion of the lender.
+              </p>
+              <div className="flex items-baseline justify-between text-[11px]">
+                <span className="font-semibold" style={{ color: "#172024" }}>Prepared by: {by}</span>
+                <span style={{ color: "#7a8286" }}>
+                  {new Date().toLocaleString("en-GB", { day: "2-digit", month: "short", year: "numeric", hour: "2-digit", minute: "2-digit" })}
+                </span>
+              </div>
+            </div>
+          </div>
+
+          <div className="text-center text-[11px] text-[var(--ink-faint)] pb-6">
+            This preview mirrors the PDF page-for-page · <button className="btn btn-ghost btn-sm" onClick={onPdf}><IDownload size={13} /> Download PDF</button>
+          </div>
+        </div>
       </div>
     </div>
   );
