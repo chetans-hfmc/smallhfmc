@@ -28,6 +28,8 @@ function NewCaseModal({ open, onClose }: { open: boolean; onClose: () => void })
   const { db, session, createCase, toast, nav } = useStore();
   const stages = [...db.stages].filter((s) => s.active).sort((a, b) => a.sortOrder - b.sortOrder);
   const [customer, setCustomer] = useState("");
+  const [whatsapp, setWhatsapp] = useState("");
+  const [waGroup, setWaGroup] = useState("");
   const [banks, setBanks] = useState<string[]>([]);
   const [amount, setAmount] = useState("1500000");
   const [stage, setStage] = useState(stages[0]?.label ?? "New Login");
@@ -66,12 +68,16 @@ function NewCaseModal({ open, onClose }: { open: boolean; onClose: () => void })
       ownerId,
       source,
       partner,
+      whatsapp,
+      waGroup: waGroup.trim() || null,
       task: taskDesc.trim()
         ? { description: taskDesc, dueDate: taskDue, waitingFor: "Internal", whyPending: "Internal review", ownerId }
         : undefined,
     });
     toast("success", `${c.caseNumber} opened for ${c.customer}.`);
     setCustomer("");
+    setWhatsapp("");
+    setWaGroup("");
     setBanks([]);
     setTaskDesc("");
     setErr("");
@@ -90,6 +96,14 @@ function NewCaseModal({ open, onClose }: { open: boolean; onClose: () => void })
           <div>
             <label className="label">Loan amount (AED)</label>
             <input className="input mono" type="number" min={0} step={10000} value={amount} onChange={(e) => setAmount(e.target.value)} />
+          </div>
+          <div>
+            <label className="label">Client WhatsApp</label>
+            <input className="input mono" value={whatsapp} onChange={(e) => setWhatsapp(e.target.value)} placeholder="+971 50 123 4567" />
+          </div>
+          <div>
+            <label className="label">WhatsApp group link <span className="normal-case tracking-normal" style={{ color: "var(--ink-faint)" }}>— optional, paste the invite</span></label>
+            <input className="input mono" value={waGroup} onChange={(e) => setWaGroup(e.target.value)} placeholder="https://chat.whatsapp.com/…" />
           </div>
         </div>
 
@@ -252,7 +266,7 @@ export default function Shell({ children }: { children: ReactNode }) {
 
   const navItems: { label: string; route: Route; icon: (p: { size?: number; className?: string }) => ReactNode }[] = [
     { label: "Dashboard", route: { name: "dashboard" as const }, icon: IGrid },
-    { label: "Affordability", route: { name: "calculator" as const }, icon: ICalc },
+    { label: "Calculator", route: { name: "calculator" as const }, icon: ICalc },
     { label: "Task Queue", route: { name: "tasks" as const }, icon: ITasks },
     { label: "Reports", route: { name: "reports" as const }, icon: IChart },
     ...(isAdmin ? [{ label: "Admin", route: { name: "admin" as const }, icon: IShield }] : []),
@@ -262,7 +276,7 @@ export default function Shell({ children }: { children: ReactNode }) {
     route.name === "dashboard" ? "Dashboard" :
     route.name === "case" ? "Case 360" :
     route.name === "tasks" ? "Task Queue" :
-    route.name === "calculator" ? "Affordability" :
+    route.name === "calculator" ? "Calculator" :
     route.name === "reports" ? "Reports" : "Admin";
 
   return (
@@ -274,7 +288,7 @@ export default function Shell({ children }: { children: ReactNode }) {
         <div className="flex items-center gap-2.5 px-4 py-4">
           <LogoMark size={30} />
           <div>
-            <div className="font-disp font-bold text-[15px] tracking-[0.04em] leading-none">MERIDIAN</div>
+            <div className="font-disp font-bold text-[15px] tracking-[0.04em] leading-none">HFMC</div>
             <div className="text-[9.5px] uppercase tracking-[0.18em] text-[var(--ink-faint)] mt-1">Mortgage · UAE</div>
           </div>
         </div>

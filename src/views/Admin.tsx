@@ -1,7 +1,6 @@
 import { useState } from "react";
 import { useStore } from "../lib/store";
-import type { PartnerKind, Role, User } from "../lib/types";
-import { ROLE_SENIORITY } from "../lib/types";
+import type { Designation, PartnerKind, User } from "../lib/types";
 import { fmtRate } from "../lib/format";
 import { Avatar, Chip, Modal } from "../components/ui";
 import { ConfirmModal } from "../components/bits";
@@ -9,6 +8,7 @@ import { IChevronL, IChevronR, IPencil, IPlus, ITrash, IX } from "../components/
 
 const TABS: { key: string; label: string }[] = [
   { key: "users", label: "Teammates" },
+  { key: "designations", label: "Designations" },
   { key: "banks", label: "Banks & rates" },
   { key: "partners", label: "Partners" },
   { key: "stages", label: "Stages" },
@@ -24,11 +24,11 @@ export default function Admin() {
   const { db, session } = store;
   const [tab, setTab] = useState("users");
 
-  if (session?.role !== "Head of Company" && session?.role !== "Mortgage Head") {
+  if (!store.canAdmin()) {
     return (
       <div className="card p-10 text-center anim-fade-up">
-        <h2 className="font-disp font-semibold text-[18px] mb-2">Admin is for the Head of Company and Mortgage Head</h2>
-        <p className="text-[13px] text-[var(--ink-dim)]">Your role is {session?.role}. If you need a list changed, ask them — every change lands in the activity trail.</p>
+        <h2 className="font-disp font-semibold text-[18px] mb-2">Admin is for designations with admin rights</h2>
+        <p className="text-[13px] text-[var(--ink-dim)]">Your designation is {session?.role}. If you need a list changed, ask the Head of Company or Mortgage Head — every change lands in the activity trail.</p>
       </div>
     );
   }
@@ -53,6 +53,7 @@ export default function Admin() {
       </div>
 
       {tab === "users" && <UsersTab />}
+      {tab === "designations" && <DesignationsTab />}
       {tab === "banks" && <BanksTab />}
       {tab === "partners" && <PartnersTab />}
       {tab === "sla" && <SlaTab />}
@@ -70,7 +71,8 @@ function UsersTab() {
   const [editing, setEditing] = useState<User | null>(null);
   const [creating, setCreating] = useState(false);
   const [deleting, setDeleting] = useState<User | null>(null);
-  const isHoC = session?.role === "Head of Company";
+  const myDesig = db.designations.find((d) => d.name === session?.role);
+  const isHoC = myDesig?.super === true || session?.role === "Head of Company";
 
   const blank = (): User => ({
     id: 0, name: "", email: "", password: "demo123", role: "SPO", team: "Dubai", active: true, createdAt: "",
@@ -85,7 +87,10 @@ function UsersTab() {
         </button>
       </div>
       <div className="divide-y" style={{ borderColor: "var(--line-soft)" }}>
-        {[...db.users].sort((a, b) => ROLE_SENIORITY.indexOf(a.role) - ROLE_SENIORITY.indexOf(b.role)).map((u) => (
+        {[...db.users].sort((a, b) => {
+          const idx = (r: string) => { const i = db.designations.findIndex((d) => d.name === r); return i === -1 ? 99 : i; };
+          return idx(a.role) - idx(b.role);
+        }).map((u) => (
           <div key={u.id} className="px-4 py-3 flex flex-wrap items-center gap-3" style={{ borderColor: "var(--line-soft)", opacity: u.active ? 1 : 0.55 }}>
             <Avatar name={u.name} size={30} />
             <div className="min-w-[180px]">
@@ -125,8 +130,8 @@ function UsersTab() {
             </div>
             <div>
               <label className="label">Role</label>
-              <select className="select" value={editing.role} onChange={(e) => setEditing({ ...editing, role: e.target.value as Role })}>
-                {ROLE_SENIORITY.map((r) => <option key={r}>{r}</option>)}
+              <select className="select" value={editing.role} onChange={(e) => setEditing({ ...editing, role: e.target.value })}>
+                {db.designations.map((d) => <option key={d.id} value={d.name}>{d.name}</option>)}
               </select>
             </div>
             <div>
@@ -465,6 +470,112 @@ function SlaTab() {
           <IPlus size={13} /> Add rule
         </button>
       </div>
+    </div>
+  );
+}
+
+/* ---------------- designations ---------------- */
+
+function DesignationsTab() {
+  const { db, addDesignation, updateDesignation, deleteDesignation, toast } = useStore();
+  const [name, setName] = useState("");
+  const [deleting, setDeleting] = useState<Designation | null>(null);
+
+  const FlagToggle = ({ on, label, onClick, locked }: { on: boolean; label: string; onClick: () => void; locked?: boolean }) => (
+    <button
+      type="button"
+      className="chip transition-all"
+      title={locked ? "Locked for this designation" : undefined}
+      style={
+        on
+          ? { background: "rgba(67,214,155,0.12)", borderColor: "rgba(67,214,155,0.5)", color: "var(--mint)" }
+          : { background: "var(--bg2)", borderColor: "var(--line)", color: "var(--ink-faint)" }
+      }
+      onClick={() => !locked && onClick()}
+    >
+      {label}
+    </button>
+  );
+
+  return (
+    <div className="card anim-fade-up">
+      <div className="px-4 py-3 border-b" style={{ borderColor: "var(--line-soft)" }}>
+        <h3 className="font-disp font-semibold text-[14px] m-0">Designations & permissions</h3>
+        <p className="text-[11.5px] text-[var(--ink-faint)] mt-0.5 mb-0">
+          Create your own designations beyond SPO / VRM. Scope decides what each holder sees: all cases, their team's, or only their own book.
+        </p>
+      </div>
+      <div className="divide-y" style={{ borderColor: "var(--line-soft)" }}>
+        {db.designations.map((d) => {
+          const holders = db.users.filter((u) => u.role === d.name).length;
+          return (
+            <div key={d.id} className="px-4 py-3 flex flex-wrap items-center gap-2.5" style={{ borderColor: "var(--line-soft)" }}>
+              {d.builtIn ? (
+                <span className="text-[13px] font-medium min-w-[150px]">{d.name}</span>
+              ) : (
+                <input
+                  className="input"
+                  style={{ width: 170, padding: "5px 9px" }}
+                  value={d.name}
+                  onChange={(e) => updateDesignation(d.id, { name: e.target.value })}
+                />
+              )}
+              {d.super && <Chip tone="amber">supreme</Chip>}
+              {d.builtIn && <Chip tone="slate">built-in</Chip>}
+              <select
+                className="select"
+                style={{ width: 130 }}
+                value={d.scope}
+                disabled={d.super}
+                onChange={(e) => updateDesignation(d.id, { scope: e.target.value as Designation["scope"] })}
+              >
+                <option value="all">sees all</option>
+                <option value="team">sees team</option>
+                <option value="own">own book</option>
+              </select>
+              <FlagToggle on={d.issueTasks} label="can issue tasks" locked={d.super} onClick={() => updateDesignation(d.id, { issueTasks: !d.issueTasks })} />
+              <FlagToggle on={d.admin} label="admin console" locked={d.super} onClick={() => updateDesignation(d.id, { admin: !d.admin })} />
+              <span className="text-[11.5px] text-[var(--ink-faint)]">{holders} holder{holders === 1 ? "" : "s"}</span>
+              {!d.builtIn && (
+                <button className="btn btn-danger btn-sm ml-auto" onClick={() => setDeleting(d)}>
+                  <ITrash size={13} />
+                </button>
+              )}
+            </div>
+          );
+        })}
+      </div>
+      <div className="flex flex-wrap items-end gap-2 px-4 py-3 border-t" style={{ borderColor: "var(--line-soft)" }}>
+        <div>
+          <label className="label">New designation</label>
+          <input className="input" style={{ width: 220 }} placeholder="e.g. Documents Officer" value={name} onChange={(e) => setName(e.target.value)} />
+        </div>
+        <button
+          className="btn btn-primary btn-sm"
+          onClick={() => {
+            const err = addDesignation(name);
+            if (err) return toast("error", err);
+            toast("success", `Designation "${name.trim()}" created — set its scope and permissions above.`);
+            setName("");
+          }}
+        >
+          <IPlus size={13} /> Add designation
+        </button>
+      </div>
+
+      <ConfirmModal
+        open={!!deleting}
+        onClose={() => setDeleting(null)}
+        title={`Delete "${deleting?.name}"?`}
+        body="Only designations with no holders can be deleted."
+        confirmLabel="Delete"
+        onConfirm={() => {
+          if (!deleting) return;
+          const err = deleteDesignation(deleting.id);
+          if (err) toast("error", err);
+          else toast("info", `Designation "${deleting.name}" deleted.`);
+        }}
+      />
     </div>
   );
 }

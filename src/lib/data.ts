@@ -1,5 +1,5 @@
 import type {
-  Activity, AffordabilityCheck, BankItem, DB, Instruction, LoanCase, MasterItem,
+  Activity, AffordabilityCheck, BankItem, DB, Designation, Instruction, LoanCase, MasterItem,
   PartnerItem, SlaRule, StageItem, Task, User,
 } from "./types";
 import { daysAgoISO, inDaysISO } from "./format";
@@ -10,7 +10,19 @@ const ts = (daysBack: number, hourJitter = 0) =>
   new Date(Date.now() - daysBack * DAY - hourJitter * 3600000).toISOString();
 
 export function seedDb(): DB {
+  const designations: Designation[] = [
+    { id: 1, name: "Super Admin", scope: "all", issueTasks: true, admin: true, super: true, builtIn: true },
+    { id: 2, name: "Head of Company", scope: "all", issueTasks: true, admin: true, super: false, builtIn: true },
+    { id: 3, name: "PA to HoC", scope: "all", issueTasks: true, admin: false, super: false, builtIn: true },
+    { id: 4, name: "Mortgage Head", scope: "all", issueTasks: true, admin: true, super: false, builtIn: true },
+    { id: 5, name: "Team Leader SPO", scope: "team", issueTasks: true, admin: false, super: false, builtIn: true },
+    { id: 6, name: "Team Leader VRM", scope: "team", issueTasks: true, admin: false, super: false, builtIn: true },
+    { id: 7, name: "SPO", scope: "own", issueTasks: false, admin: false, super: false, builtIn: true },
+    { id: 8, name: "VRM", scope: "own", issueTasks: false, admin: false, super: false, builtIn: true },
+  ];
+
   const users: User[] = [
+    { id: 11, name: "Salem Al Marri", email: "super@meridian.ae", password: "super123", role: "Super Admin", team: "Management", active: true, createdAt: ts(500) },
     { id: 1, name: "Rashid Al Falasi", email: "head@meridian.ae", password: "admin123", role: "Head of Company", team: "Management", active: true, createdAt: ts(400) },
     { id: 2, name: "Layla Haddad", email: "pa@meridian.ae", password: "demo123", role: "PA to HoC", team: "Management", active: true, createdAt: ts(360) },
     { id: 3, name: "Omar Qassim", email: "omar@meridian.ae", password: "demo123", role: "Mortgage Head", team: "Management", active: true, createdAt: ts(330) },
@@ -219,6 +231,8 @@ export function seedDb(): DB {
       ownerId: s.owner,
       source: s.source,
       partner: s.partner ? { kind: s.partner.kind, name: s.partner.name, sharePct: s.partner.share } : null,
+      whatsapp: "",
+      waGroup: null,
       createdAt,
       updatedAt: ts(Math.max(0.02, (s.open?.openedAgo ?? s.done?.[0]?.doneAgo ?? s.closedAgo ?? 1) * 0.4), id % 3),
     });
@@ -250,6 +264,22 @@ export function seedDb(): DB {
     for (const [u, ago, action, ov, nv] of s.trail ?? []) {
       aid += 1;
       activities.push({ id: aid, caseId: id, userId: u, at: ts(ago, (id + ago) % 5), action, oldValue: ov, newValue: nv });
+    }
+  }
+
+  const waMap: Record<string, { wa: string; group?: string }> = {
+    "Suresh Patil": { wa: "+971 50 234 8811", group: "https://chat.whatsapp.com/HfmcSureshPatil01" },
+    "Meera Krishnan": { wa: "+971 55 810 2245" },
+    "Kavita Deshpande": { wa: "+971 52 667 9034", group: "https://chat.whatsapp.com/HfmcKavitaFile04" },
+    "Rajiv Malhotra": { wa: "+971 50 445 1278" },
+    "Deepak Nair": { wa: "+971 56 300 7719" },
+    "Vinod Kamble": { wa: "+971 54 902 3361" },
+  };
+  for (const c of cases) {
+    const p = waMap[c.customer];
+    if (p) {
+      c.whatsapp = p.wa;
+      c.waGroup = p.group ?? null;
     }
   }
 
@@ -289,7 +319,7 @@ export function seedDb(): DB {
   ];
 
   return {
-    version: 6, users, cases, tasks, activities, stages, whyPending, waitingFor,
+    version: 7, users, designations, cases, tasks, activities, stages, whyPending, waitingFor,
     banks, partners, slaRules, instructions, affordabilityChecks,
   };
 }

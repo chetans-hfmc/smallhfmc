@@ -5,7 +5,7 @@ import {
   ageDays, caseStatusOf, fmtDate, fmtDateTime, fmtMoney, inDaysISO, primaryBank, relTime, todayISO,
 } from "../lib/format";
 import { Avatar, Chip, DueChip, Modal, StatusChip } from "../components/ui";
-import { BankChips, CaseStateChip, CommissionPanel, ConfirmModal, SourceChip } from "../components/bits";
+import { BankChips, CaseStateChip, CommissionPanel, ConfirmModal, SourceChip, WaButtons } from "../components/bits";
 import {
   IArrowR, IBank, ICalc, IChevronL, IClock, IFlag, IHistory, IPlus, ITrash, IZap,
 } from "../components/icons";
@@ -260,6 +260,19 @@ export default function CaseDetail({ id }: { id: number }) {
       <button className="flex items-center gap-1 text-[12.5px] text-[var(--ink-dim)] hover:text-[var(--ink)] transition-colors" onClick={() => nav({ name: "dashboard" })}>
         <IChevronL size={15} /> All cases
       </button>
+
+      {/* WhatsApp chase bar — first thing on the case */}
+      {(c.whatsapp || c.waGroup) && (
+        <div className="card px-4 py-2.5 flex flex-wrap items-center gap-3 anim-fade-up" style={{ borderColor: "rgba(67,214,155,0.3)" }}>
+          <span className="text-[11px] uppercase tracking-[0.12em] font-disp font-semibold" style={{ color: "var(--mint)" }}>
+            Client chase
+          </span>
+          <span className="mono text-[12px] text-[var(--ink-dim)]">{c.whatsapp}</span>
+          <div className="ml-auto">
+            <WaButtons c={c} agentName={session?.name.split(" ")[0] ?? "HFMC"} />
+          </div>
+        </div>
+      )}
 
       {/* header */}
       <div className="card p-5 anim-fade-up">
