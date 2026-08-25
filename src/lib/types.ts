@@ -34,7 +34,8 @@ export interface Task {
   id: number;
   caseId: number;
   description: string;
-  ownerId: number;
+  ownerId: number; // who does it
+  createdBy: number; // who opened/assigned it
   waitingFor: string;
   whyPending: string;
   createdAt: string;

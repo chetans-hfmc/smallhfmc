@@ -108,7 +108,7 @@ function loadDb(): DB {
     const raw = localStorage.getItem(DB_KEY);
     if (raw) {
       const parsed = JSON.parse(raw) as DB;
-      if (parsed && parsed.version === 4 && Array.isArray(parsed.cases) && Array.isArray(parsed.slaRules)) return parsed;
+      if (parsed && parsed.version === 5 && Array.isArray(parsed.cases) && Array.isArray(parsed.slaRules)) return parsed;
     }
   } catch {
     /* fall through to seed */
@@ -299,6 +299,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
               caseId: c.id,
               description: input.task!.description.trim(),
               ownerId: input.task!.ownerId,
+              createdBy: me?.id ?? 0,
               waitingFor: input.task!.waitingFor,
               whyPending: input.task!.whyPending,
               createdAt: nowISO(),
@@ -419,6 +420,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
           caseId,
           description: input.description.trim(),
           ownerId: input.ownerId,
+          createdBy: me?.id ?? 0,
           waitingFor: input.waitingFor,
           whyPending: input.whyPending,
           createdAt: nowISO(),

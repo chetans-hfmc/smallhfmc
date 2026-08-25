@@ -1,7 +1,7 @@
 import { useMemo, useState } from "react";
 import { useStore } from "../lib/store";
 import type { Task } from "../lib/types";
-import { fmtDateTime, todayISO } from "../lib/format";
+import { fmtDateTime, relTime, todayISO } from "../lib/format";
 import { Avatar, Chip, DueChip, EmptyState, Modal, Seg } from "../components/ui";
 import { ICheck, ISearch, ITasks } from "../components/icons";
 
@@ -140,6 +140,9 @@ export default function Tasks() {
                       <td className="max-w-[260px]">
                         <p className="font-medium m-0 leading-snug" style={{ textDecoration: isOpen ? undefined : "line-through", textDecorationColor: "rgba(232,241,239,0.3)" }}>
                           {t.description}
+                        </p>
+                        <p className="text-[11px] text-[var(--ink-faint)] m-0 mt-0.5 truncate">
+                          opened by <span className="text-[var(--ink-dim)]">{userById(t.createdBy)?.name.split(" ")[0] ?? "—"}</span> · {relTime(t.createdAt)}
                         </p>
                         {!isOpen && t.remarks && <p className="text-[11px] text-[var(--ink-faint)] m-0 mt-0.5 truncate">“{t.remarks}”</p>}
                       </td>

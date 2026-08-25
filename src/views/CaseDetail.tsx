@@ -11,7 +11,7 @@ import {
 } from "../components/icons";
 
 function EditableTask({ task }: { task: Task }) {
-  const { db, canEditTask, updateTask, completeTask, toast } = useStore();
+  const { db, canEditTask, updateTask, completeTask, toast, userById } = useStore();
   const editable = canEditTask(task);
   const [remarks, setRemarks] = useState("");
 
@@ -23,7 +23,10 @@ function EditableTask({ task }: { task: Task }) {
         </div>
         <DueChip dueISO={task.dueDate} />
       </div>
-      <p className="text-[15px] font-medium mt-0 mb-3">{task.description}</p>
+      <p className="text-[15px] font-medium mt-0 mb-1">{task.description}</p>
+      <p className="text-[11.5px] text-[var(--ink-faint)] mt-0 mb-3">
+        opened by <span className="text-[var(--ink-dim)]">{userById(task.createdBy)?.name ?? "—"}</span> · {relTime(task.createdAt)} · assigned to {userById(task.ownerId)?.name ?? "—"}
+      </p>
       <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
         <div>
           <label className="label">Owner</label>
@@ -94,7 +97,9 @@ function NextTaskModal({ c, open, onClose }: { c: LoanCase; open: boolean; onClo
 
   return (
     <Modal onClose={onClose} title={`Next task · ${c.caseNumber}`} width={520}>
-      <p className="text-[12px] text-[var(--ink-faint)] mt-0 mb-3">Opening a new task supersedes the current open one, so every case always has exactly one next action.</p>
+      <p className="text-[12px] text-[var(--ink-faint)] mt-0 mb-3">
+        You are recorded as the <strong className="text-[var(--ink-dim)]">opener</strong>; the owner below is who executes it. Opening a task supersedes the current one, so every case always has exactly one next action.
+      </p>
       <div className="space-y-3">
         <div>
           <label className="label">What needs to happen next?</label>
@@ -386,7 +391,8 @@ export default function CaseDetail({ id }: { id: number }) {
                     <div className="min-w-0 flex-1">
                       <p className="text-[13px] m-0">{t.description}</p>
                       <div className="flex flex-wrap gap-x-3 gap-y-0.5 mt-1 text-[11px] text-[var(--ink-faint)]">
-                        <span>{userById(t.ownerId)?.name ?? "—"}</span>
+                        <span>by {userById(t.createdBy)?.name.split(" ")[0] ?? "—"}</span>
+                        <span>→ {userById(t.ownerId)?.name.split(" ")[0] ?? "—"}</span>
                         {t.completedAt && <span>done {relTime(t.completedAt)}</span>}
                         {t.remarks && <span className="italic">“{t.remarks}”</span>}
                       </div>

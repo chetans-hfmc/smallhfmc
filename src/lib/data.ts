@@ -59,8 +59,8 @@ export function seedDb(): DB {
   let tid = 0;
   let aid = 0;
 
-  interface DoneSeed { desc: string; owner: number; waiting: string; why: string; doneAgo: number; remarks?: string }
-  interface OpenSeed { desc: string; owner: number; waiting: string; why: string; dueIn: number; openedAgo: number }
+  interface DoneSeed { desc: string; owner: number; waiting: string; why: string; doneAgo: number; remarks?: string; by?: number }
+  interface OpenSeed { desc: string; owner: number; waiting: string; why: string; dueIn: number; openedAgo: number; by?: number }
   interface CaseSeed {
     customer: string; bank: string; amountL: number; stage: string; owner: number; age: number;
     open?: OpenSeed; done?: DoneSeed[];
@@ -71,7 +71,7 @@ export function seedDb(): DB {
 
   const seeds: CaseSeed[] = [
     { customer: "Suresh Patil", bank: "HDFC", amountL: 45, stage: "Credit Appraisal", owner: 3, age: 21,
-      open: { desc: "Collect latest salary slips & Form 16", owner: 3, waiting: "Client", why: "Awaiting client documents", dueIn: -3, openedAgo: 6 },
+      open: { desc: "Collect latest salary slips & Form 16", owner: 3, waiting: "Client", why: "Awaiting client documents", dueIn: -3, openedAgo: 6, by: 2 },
       done: [
         { desc: "Login case & verify KYC set", owner: 3, waiting: "Internal", why: "Internal review", doneAgo: 17, remarks: "PAN + Aadhaar verified, OK." },
         { desc: "Send document checklist to client", owner: 3, waiting: "Client", why: "Awaiting client documents", doneAgo: 12, remarks: "Sent on WhatsApp + email." },
@@ -89,7 +89,7 @@ export function seedDb(): DB {
       done: [{ desc: "Submit sanction file to credit team", owner: 5, waiting: "Internal", why: "Internal review", doneAgo: 8, remarks: "File complete as per checklist." }],
       trail: [[5, 26, "Case created"], [5, 9, "Stage moved", "Legal & Technical", "Sanction"]] },
     { customer: "Rahul Verma", bank: "Kotak", amountL: 28, stage: "New Login", owner: 8, age: 2,
-      open: { desc: "Pre-login eligibility check", owner: 8, waiting: "Internal", why: "Internal review", dueIn: 6, openedAgo: 2 },
+      open: { desc: "Pre-login eligibility check", owner: 8, waiting: "Internal", why: "Internal review", dueIn: 6, openedAgo: 2, by: 7 },
       trail: [[8, 2, "Case created"]] },
     { customer: "Ananya Iyer", bank: "LIC HFL", amountL: 74, stage: "Legal & Technical", owner: 4, age: 30,
       done: [
@@ -105,7 +105,7 @@ export function seedDb(): DB {
       open: { desc: "Get offer letter signed by both applicants", owner: 3, waiting: "Client", why: "No response from client", dueIn: 5, openedAgo: 3 },
       trail: [[3, 18, "Case created"], [3, 5, "Stage moved", "Sanction", "Offer & Acceptance"]] },
     { customer: "Manoj Gupta", bank: "Bajaj Finserv", amountL: 47, stage: "Credit Appraisal", owner: 6, age: 9,
-      open: { desc: "Re-check CIBIL after dispute resolution", owner: 6, waiting: "Internal", why: "Internal review", dueIn: -5, openedAgo: 8 },
+      open: { desc: "Re-check CIBIL after dispute resolution", owner: 6, waiting: "Internal", why: "Internal review", dueIn: -5, openedAgo: 8, by: 2 },
       trail: [[6, 9, "Case created"]] },
     { customer: "Ritu Sharma", bank: "ICICI", amountL: 40, stage: "Documents & KYC", owner: 8, age: 4,
       done: [{ desc: "Collect KYC + income proof set", owner: 8, waiting: "Client", why: "Awaiting client documents", doneAgo: 1, remarks: "Awaiting 2 more payslips." }],
@@ -130,7 +130,7 @@ export function seedDb(): DB {
       done: [{ desc: "Verify employment with HR desk", owner: 8, waiting: "Client", why: "Awaiting client documents", doneAgo: 2, remarks: "HR confirmed, letter issued." }],
       trail: [[8, 5, "Case created"], [8, 2, "Task completed", "Verify employment with HR desk"]] },
     { customer: "Rajiv Malhotra", bank: "ICICI", amountL: 92, stage: "Legal & Technical", owner: 4, age: 28,
-      open: { desc: "Chase legal opinion — 2nd reminder sent", owner: 4, waiting: "Legal", why: "Legal opinion pending", dueIn: 2, openedAgo: 6 },
+      open: { desc: "Chase legal opinion — 2nd reminder sent", owner: 4, waiting: "Legal", why: "Legal opinion pending", dueIn: 2, openedAgo: 6, by: 2 },
       done: [{ desc: "Book technical inspection", owner: 4, waiting: "Valuer", why: "Valuer visit pending", doneAgo: 9, remarks: "Report received, value OK." }],
       trail: [[4, 28, "Case created"], [4, 10, "Stage moved", "Valuation", "Legal & Technical"]] },
     { customer: "Sunita Pawar", bank: "SBI", amountL: 43, stage: "Closed", owner: 3, age: 55,
@@ -202,7 +202,7 @@ export function seedDb(): DB {
     for (const d of s.done ?? []) {
       tid += 1;
       tasks.push({
-        id: tid, caseId: id, description: d.desc, ownerId: d.owner, waitingFor: d.waiting,
+        id: tid, caseId: id, description: d.desc, ownerId: d.owner, createdBy: d.by ?? d.owner, waitingFor: d.waiting,
         whyPending: d.why, createdAt: ts(d.doneAgo + 2, id % 4), dueDate: daysAgoISO(d.doneAgo - 1),
         status: "Done", completedAt: ts(d.doneAgo, id % 6), remarks: d.remarks ?? "",
       });
@@ -210,8 +210,8 @@ export function seedDb(): DB {
     if (s.open) {
       tid += 1;
       tasks.push({
-        id: tid, caseId: id, description: s.open.desc, ownerId: s.open.owner, waitingFor: s.open.waiting,
-        whyPending: s.open.why, createdAt: ts(s.open.openedAgo, id % 4),
+        id: tid, caseId: id, description: s.open.desc, ownerId: s.open.owner, createdBy: s.open.by ?? s.open.owner,
+        waitingFor: s.open.waiting, whyPending: s.open.why, createdAt: ts(s.open.openedAgo, id % 4),
         dueDate: s.open.dueIn < 0 ? daysAgoISO(-s.open.dueIn) : inDaysISO(s.open.dueIn),
         status: "Open", completedAt: null, remarks: "",
       });
@@ -259,7 +259,7 @@ export function seedDb(): DB {
   ];
 
   return {
-    version: 4, users, cases, tasks, activities, stages, whyPending, waitingFor,
+    version: 5, users, cases, tasks, activities, stages, whyPending, waitingFor,
     banks, slaRules, instructions, affordabilityChecks,
   };
 }
