@@ -3,7 +3,7 @@ import type { CaseState, CaseSource, LoanCase } from "../lib/types";
 import { commissionFor, fmtMoney, fmtRate } from "../lib/format";
 import { useStore } from "../lib/store";
 import { Avatar, Chip } from "./ui";
-import { IX } from "./icons";
+import { IWhatsapp, IX } from "./icons";
 
 export function CaseStateChip({ state }: { state: CaseState }) {
   if (state === "Active") return <Chip tone="mint">Active</Chip>;
@@ -73,6 +73,43 @@ export function CommissionPanel({ c, compact = false }: { c: LoanCase; compact?:
         <p className="text-[10.5px] text-[var(--ink-faint)] mt-2 mb-0">
           Live figures — change rates or partner share in Admin and this recalculates.
         </p>
+      )}
+    </div>
+  );
+}
+
+export function waClientLink(number: string, caseNumber: string, customer: string, agent: string): string {
+  const digits = number.replace(/\D/g, "");
+  const first = customer ? customer.split(" ")[0] : "";
+  const text = `Hello${first ? " " + first : ""}, this is ${agent} from HFMC regarding your home finance file ${caseNumber}. `;
+  return `https://wa.me/${digits}?text=${encodeURIComponent(text)}`;
+}
+
+export function WaButtons({ c, agentName }: { c: LoanCase; agentName: string }) {
+  if (!c.whatsapp && !c.waGroup) return null;
+  return (
+    <div className="flex flex-wrap items-center gap-2">
+      {c.whatsapp && (
+        <a
+          className="btn btn-mint btn-sm"
+          href={waClientLink(c.whatsapp, c.caseNumber, c.customer, agentName)}
+          target="_blank"
+          rel="noreferrer"
+          title={`Chat with ${c.customer} on WhatsApp (${c.whatsapp})`}
+        >
+          <IWhatsapp size={14} /> Chat with client
+        </a>
+      )}
+      {c.waGroup && (
+        <a
+          className="btn btn-ghost btn-sm"
+          href={c.waGroup}
+          target="_blank"
+          rel="noreferrer"
+          title="Open the WhatsApp group to chase documents"
+        >
+          <IWhatsapp size={14} /> Chase in group
+        </a>
       )}
     </div>
   );

@@ -1,4 +1,5 @@
 export type Role =
+  | "Super Admin"
   | "Head of Company"
   | "PA to HoC"
   | "Mortgage Head"
@@ -18,33 +19,45 @@ export interface User {
   name: string;
   email: string;
   password: string;
-  role: Role;
+  role: string; // designation label
   team: string;
   active: boolean;
   createdAt: string;
 }
 
-export interface CasePartner {
-  kind: PartnerKind;
+export interface Designation {
+  id: number;
   name: string;
-  sharePct: number; // % of our bank commission paid to the partner
+  scope: "all" | "team" | "own";
+  issueTasks: boolean;
+  admin: boolean;
+  super: boolean;
+  builtIn: boolean;
 }
 
 export interface LoanCase {
   id: number;
   caseNumber: string;
   customer: string;
-  banks: string[]; // banks the case has been submitted to — empty = "not yet decided"
-  wonBank: string | null; // set when the case books
-  loanAmount: number; // AED
+  banks: string[];
+  wonBank: string | null;
+  loanAmount: number;
   stage: string;
   caseStatus: CaseState;
   closedDate: string | null;
   ownerId: number;
   source: CaseSource;
   partner: CasePartner | null;
+  whatsapp: string;
+  waGroup: string | null;
   createdAt: string;
   updatedAt: string;
+}
+
+export interface CasePartner {
+  kind: PartnerKind;
+  name: string;
+  sharePct: number;
 }
 
 export interface Task {
@@ -52,11 +65,11 @@ export interface Task {
   caseId: number;
   description: string;
   ownerId: number;
-  createdBy: number; // who opened / assigned the task
+  createdBy: number;
   waitingFor: string;
   whyPending: string;
   createdAt: string;
-  dueDate: string; // yyyy-mm-dd
+  dueDate: string;
   status: TaskStatus;
   completedAt: string | null;
   remarks: string;
@@ -72,6 +85,39 @@ export interface Activity {
   newValue?: string;
 }
 
+export interface MasterItem {
+  id: number;
+  label: string;
+  active: boolean;
+}
+
+export interface StageItem extends MasterItem {
+  sortOrder: number;
+}
+
+export interface BankItem {
+  id: number;
+  name: string;
+  ratePct: number;
+  active: boolean;
+}
+
+export interface PartnerItem {
+  id: number;
+  kind: PartnerKind;
+  name: string;
+  defaultSharePct: number;
+  active: boolean;
+}
+
+export interface SlaRule {
+  id: number;
+  stage: string;
+  bank: string | null;
+  maxDays: number;
+  active: boolean;
+}
+
 export interface Instruction {
   id: number;
   caseId: number;
@@ -79,7 +125,7 @@ export interface Instruction {
   instruction: string;
   assignedTo: number;
   dueDate: string;
-  status: TaskStatus;
+  status: "Open" | "Done";
   createdAt: string;
   completedAt: string | null;
 }
@@ -108,44 +154,13 @@ export interface AffordabilityCheck {
   eligible: boolean;
   createdBy: number;
   createdAt: string;
-}
-
-export interface MasterItem {
-  id: number;
-  label: string;
-  active: boolean;
-}
-
-export interface StageItem extends MasterItem {
-  sortOrder: number;
-}
-
-export interface BankItem {
-  id: number;
-  name: string;
-  ratePct: number; // our commission rate on loan amount
-  active: boolean;
-}
-
-export interface PartnerItem {
-  id: number;
-  kind: PartnerKind;
-  name: string;
-  defaultSharePct: number;
-  active: boolean;
-}
-
-export interface SlaRule {
-  id: number;
-  stage: string;
-  bank: string | null; // null = applies to all banks
-  maxDays: number;
-  active: boolean;
+  payload?: string; // JSON snapshot of full mortgage input + result
 }
 
 export interface DB {
   version: number;
   users: User[];
+  designations: Designation[];
   cases: LoanCase[];
   tasks: Task[];
   activities: Activity[];
@@ -169,7 +184,10 @@ export type Route =
 
 export type Tone = "mint" | "amber" | "coral" | "sky" | "slate";
 
-export const ROLE_SENIORITY: Role[] = [
+export const SOURCES: CaseSource[] = ["Direct", "Agent", "Broker", "Website", "Referral"];
+export const PARTNER_SHARES = [10, 15, 20, 30];
+export const ROLE_SENIORITY = [
+  "Super Admin",
   "Head of Company",
   "PA to HoC",
   "Mortgage Head",
@@ -178,6 +196,3 @@ export const ROLE_SENIORITY: Role[] = [
   "SPO",
   "VRM",
 ];
-
-export const SOURCES: CaseSource[] = ["Direct", "Agent", "Broker", "Website", "Referral"];
-export const PARTNER_SHARES = [10, 15, 20, 30];

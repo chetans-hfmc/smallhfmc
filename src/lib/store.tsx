@@ -1,8 +1,8 @@
 import { createContext, useCallback, useContext, useEffect, useRef, useState } from "react";
 import type { ReactNode } from "react";
 import type {
-  Activity, BankItem, CasePartner, CaseSource, CaseState, DB, LoanCase, MasterItem,
-  PartnerItem, PartnerKind, Role, Route, SlaRule, StageItem, Task, User,
+  Activity, BankItem, CasePartner, CaseSource, CaseState, DB, Designation, LoanCase, MasterItem,
+  PartnerItem, PartnerKind, Route, SlaRule, StageItem, Task, User,
 } from "./types";
 import { seedDb } from "./data";
 import { computeAffordability } from "./calc";
@@ -26,6 +26,8 @@ export interface NewCaseInput {
   ownerId: number;
   source: CaseSource;
   partner: CasePartner | null;
+  whatsapp: string;
+  waGroup: string | null;
   task?: { description: string; dueDate: string; waitingFor: string; whyPending: string; ownerId: number };
 }
 
@@ -37,12 +39,23 @@ export interface TaskInput {
   dueDate: string;
 }
 
-/* ---------------- role model ---------------- */
+/* ---------------- role model (designation-driven) ---------------- */
 
-const ISSUERS: Role[] = ["Head of Company", "PA to HoC", "Mortgage Head"];
-const FULL_SCOPE: Role[] = ["Head of Company", "PA to HoC", "Mortgage Head"];
-const ADMINS: Role[] = ["Head of Company", "Mortgage Head"];
-const TEAM_LEADERS: Role[] = ["Team Leader SPO", "Team Leader VRM"];
+export interface RoleFlags {
+  scope: "all" | "team" | "own";
+  issueTasks: boolean;
+  admin: boolean;
+  super: boolean;
+}
+
+const SUPER_FLAGS: RoleFlags = { scope: "all", issueTasks: true, admin: true, super: true };
+const DEFAULT_FLAGS: RoleFlags = { scope: "own", issueTasks: false, admin: false, super: false };
+
+export function flagsFor(designations: Designation[], role: string): RoleFlags {
+  if (role === "Super Admin") return SUPER_FLAGS;
+  const d = designations.find((x) => x.name === role);
+  return d ? { scope: d.scope, issueTasks: d.issueTasks, admin: d.admin, super: d.super } : DEFAULT_FLAGS;
+}
 
 interface StoreShape {
   db: DB;
@@ -64,6 +77,11 @@ interface StoreShape {
   addInstruction: (caseId: number, input: { instruction: string; assignedTo: number; dueDate: string }) => void;
   completeInstruction: (id: number) => void;
   canInstruct: () => boolean;
+  canAdmin: () => boolean;
+  saveMortgageCheck: (name: string, whatsapp: string, payload: string, summary: { income: number; emi: number; final: number; rate: number; tenorMonths: number; ltv: number; eligible: boolean }) => number;
+  addDesignation: (name: string) => string | null;
+  updateDesignation: (id: number, patch: Partial<Omit<Designation, "id" | "builtIn" | "super">>) => void;
+  deleteDesignation: (id: number) => string | null;
   runCheck: (input: CalcInput, customerName: string) => void;
   createCaseFromCheck: (checkId: number) => LoanCase | null;
   linkCheckToCase: (checkId: number, caseId: number) => void;
@@ -123,7 +141,7 @@ function loadDb(): DB {
     const raw = localStorage.getItem(DB_KEY);
     if (raw) {
       const parsed = JSON.parse(raw) as DB;
-      if (parsed && parsed.version === 6 && Array.isArray(parsed.cases) && Array.isArray(parsed.partners)) return parsed;
+      if (parsed && parsed.version === 7 && Array.isArray(parsed.designations)) return parsed;
     }
   } catch {
     /* fall through to seed */
@@ -198,12 +216,21 @@ export function StoreProvider({ children }: { children: ReactNode }) {
 
   /* ---------------- permissions ---------------- */
 
-  const canInstruct = useCallback(() => !!session && ISSUERS.includes(session.role), [session]);
+  const canInstruct = useCallback(
+    () => !!session && flagsFor(db.designations, session.role).issueTasks,
+    [session, db.designations]
+  );
+
+  const canAdmin = useCallback(
+    () => !!session && flagsFor(db.designations, session.role).admin,
+    [session, db.designations]
+  );
 
   const visibleCases = useCallback((): LoanCase[] => {
     if (!session) return [];
-    if (FULL_SCOPE.includes(session.role)) return db.cases;
-    if (TEAM_LEADERS.includes(session.role))
+    const f = flagsFor(db.designations, session.role);
+    if (f.scope === "all") return db.cases;
+    if (f.scope === "team")
       return db.cases.filter((c) => {
         if (c.ownerId === session.id) return true;
         const owner = db.users.find((u) => u.id === c.ownerId);
@@ -214,8 +241,9 @@ export function StoreProvider({ children }: { children: ReactNode }) {
 
   const visibleTasks = useCallback((): Task[] => {
     if (!session) return [];
-    if (FULL_SCOPE.includes(session.role)) return db.tasks;
-    if (TEAM_LEADERS.includes(session.role)) {
+    const f = flagsFor(db.designations, session.role);
+    if (f.scope === "all") return db.tasks;
+    if (f.scope === "team") {
       const teamIds = new Set(db.users.filter((u) => u.team === session.team).map((u) => u.id));
       const caseIds = new Set(visibleCases().map((c) => c.id));
       return db.tasks.filter((t) => caseIds.has(t.caseId) || teamIds.has(t.ownerId));
@@ -226,22 +254,24 @@ export function StoreProvider({ children }: { children: ReactNode }) {
   const canEditCase = useCallback(
     (c: LoanCase): boolean => {
       if (!session) return false;
-      if (FULL_SCOPE.includes(session.role)) return true;
-      if (TEAM_LEADERS.includes(session.role)) {
+      const f = flagsFor(db.designations, session.role);
+      if (f.scope === "all") return true;
+      if (f.scope === "team") {
         if (c.ownerId === session.id) return true;
         const owner = db.users.find((u) => u.id === c.ownerId);
         return owner?.team === session.team;
       }
       return c.ownerId === session.id;
     },
-    [db.users, session]
+    [db, session]
   );
 
   const canEditTask = useCallback(
     (t: Task): boolean => {
       if (!session) return false;
-      if (FULL_SCOPE.includes(session.role)) return true;
-      if (TEAM_LEADERS.includes(session.role)) {
+      const f = flagsFor(db.designations, session.role);
+      if (f.scope === "all") return true;
+      if (f.scope === "team") {
         if (t.ownerId === session.id) return true;
         const owner = db.users.find((u) => u.id === t.ownerId);
         return owner?.team === session.team;
@@ -270,6 +300,8 @@ export function StoreProvider({ children }: { children: ReactNode }) {
         ownerId: input.ownerId,
         source: input.source,
         partner: input.partner,
+        whatsapp: input.whatsapp.trim(),
+        waGroup: input.waGroup?.trim() || null,
         createdAt: nowISO(),
         updatedAt: nowISO(),
       };
@@ -563,6 +595,8 @@ export function StoreProvider({ children }: { children: ReactNode }) {
         ownerId: me.id,
         source: "Direct",
         partner: null,
+        whatsapp: k.payload ? (JSON.parse(k.payload) as { input?: { whatsapp?: string } }).input?.whatsapp ?? "" : "",
+        waGroup: null,
         createdAt: nowISO(),
         updatedAt: nowISO(),
       };
@@ -774,10 +808,112 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     setDb((prev) => ({ ...prev, slaRules: prev.slaRules.filter((r) => r.id !== id) }));
   }, []);
 
+  /* ---------------- mortgage checks ---------------- */
+
+  const saveMortgageCheck = useCallback(
+    (
+      name: string,
+      whatsapp: string,
+      payload: string,
+      summary: { income: number; emi: number; final: number; rate: number; tenorMonths: number; ltv: number; eligible: boolean }
+    ): number => {
+      const me = session;
+      let newId = 0;
+      setDb((prev) => {
+        newId = nextId(prev.affordabilityChecks);
+        return {
+          ...prev,
+          affordabilityChecks: [
+            ...prev.affordabilityChecks,
+            {
+              id: newId,
+              caseId: null,
+              customerName: name.trim(),
+              monthlyIncome: summary.income,
+              otherIncome: 0,
+              existingEmis: summary.emi,
+              age: 0,
+              employmentType: "Salaried",
+              propertyValue: 0,
+              bank: "",
+              interestRate: summary.rate,
+              tenureYears: Math.round(summary.tenorMonths / 12),
+              applicableLtv: summary.ltv,
+              maxLoanByLtv: 0,
+              maxDbrPct: 50,
+              availableDbrEmi: 0,
+              maxLoanByDbr: 0,
+              maxTenureByAge: Math.round(summary.tenorMonths / 12),
+              finalEligibleLoan: summary.final,
+              estimatedEmi: summary.emi,
+              eligible: summary.eligible,
+              createdBy: me?.id ?? 0,
+              createdAt: nowISO(),
+              payload,
+            },
+          ],
+        };
+      });
+      // whatsapp piggybacks on payload; keep param for future use
+      void whatsapp;
+      return newId;
+    },
+    [session]
+  );
+
+  /* ---------------- admin: designations ---------------- */
+
+  const addDesignation = useCallback(
+    (name: string): string | null => {
+      const clean = name.trim();
+      if (!clean) return "Designation name cannot be empty.";
+      if (db.designations.some((d) => d.name.toLowerCase() === clean.toLowerCase())) return "That designation already exists.";
+      setDb((prev) => ({
+        ...prev,
+        designations: [
+          ...prev.designations,
+          { id: nextId(prev.designations), name: clean, scope: "own", issueTasks: false, admin: false, super: false, builtIn: false },
+        ],
+      }));
+      return null;
+    },
+    [db.designations]
+  );
+
+  const updateDesignation = useCallback((id: number, patch: Partial<Omit<Designation, "id" | "builtIn" | "super">>) => {
+    setDb((prev) => {
+      const before = prev.designations.find((d) => d.id === id);
+      if (!before) return prev;
+      const users =
+        patch.name !== undefined && patch.name !== before.name
+          ? prev.users.map((u) => (u.role === before.name ? { ...u, role: patch.name as string } : u))
+          : prev.users;
+      return {
+        ...prev,
+        users,
+        designations: prev.designations.map((d) => (d.id === id ? { ...d, ...patch } : d)),
+      };
+    });
+  }, []);
+
+  const deleteDesignation = useCallback(
+    (id: number): string | null => {
+      const item = db.designations.find((d) => d.id === id);
+      if (!item) return "Designation not found.";
+      if (item.builtIn) return "Built-in designations cannot be deleted — deactivate isn't needed; just stop using it.";
+      const used = db.users.filter((u) => u.role === item.name).length;
+      if (used > 0) return `Blocked: ${used} user(s) still hold "${item.name}". Change their designation first.`;
+      setDb((prev) => ({ ...prev, designations: prev.designations.filter((d) => d.id !== id) }));
+      return null;
+    },
+    [db.designations, db.users]
+  );
+
   const value: StoreShape = {
     db, session, route, toasts, nav, login, logout, toast, dismissToast,
     createCase, updateCase, deleteCase, setCaseState, createTask, updateTask, completeTask,
-    addInstruction, completeInstruction, canInstruct,
+    addInstruction, completeInstruction, canInstruct, canAdmin,
+    saveMortgageCheck, addDesignation, updateDesignation, deleteDesignation,
     runCheck, createCaseFromCheck, linkCheckToCase,
     saveUser, deleteUser, addMaster, toggleMaster, deleteMaster, moveStage,
     addBank, updateBankRate, toggleBank, deleteBank,

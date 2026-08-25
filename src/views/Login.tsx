@@ -61,7 +61,7 @@ export default function Login() {
         <div className="flex items-center gap-3 mb-10">
           <LogoMark size={38} />
           <div>
-            <div className="font-disp font-bold text-[20px] tracking-[0.04em] leading-none">MERIDIAN</div>
+            <div className="font-disp font-bold text-[20px] tracking-[0.04em] leading-none">HFMC</div>
             <div className="text-[10px] uppercase tracking-[0.22em] text-[var(--ink-faint)] mt-1">Mortgage Case Tracker · UAE</div>
           </div>
         </div>
@@ -98,7 +98,7 @@ export default function Login() {
           <div className="lg:hidden flex items-center gap-2.5 mb-8">
             <LogoMark size={30} />
             <div>
-              <div className="font-disp font-bold text-[15px] tracking-[0.04em] leading-none">MERIDIAN</div>
+              <div className="font-disp font-bold text-[15px] tracking-[0.04em] leading-none">HFMC</div>
               <div className="text-[9px] uppercase tracking-[0.18em] text-[var(--ink-faint)] mt-0.5">Mortgage Case Tracker · UAE</div>
             </div>
           </div>
