@@ -2,10 +2,10 @@ import { useMemo, useState } from "react";
 import { slaFor, stageEnteredAt, useStore } from "../lib/store";
 import type { LoanCase, Task } from "../lib/types";
 import {
-  ageDays, caseStatusOf, fmtDate, fmtDateTime, fmtMoney, inDaysISO, relTime, todayISO,
+  ageDays, caseStatusOf, fmtDate, fmtDateTime, fmtMoney, inDaysISO, primaryBank, relTime, todayISO,
 } from "../lib/format";
 import { Avatar, Chip, DueChip, Modal, StatusChip } from "../components/ui";
-import { CaseStateChip, ConfirmModal } from "../components/bits";
+import { BankChips, CaseStateChip, CommissionPanel, ConfirmModal, SourceChip } from "../components/bits";
 import {
   IArrowR, IBank, ICalc, IChevronL, IClock, IFlag, IHistory, IPlus, ITrash, IZap,
 } from "../components/icons";
@@ -220,6 +220,7 @@ export default function CaseDetail({ id }: { id: number }) {
   const c = db.cases.find((x) => x.id === id);
   const [showNext, setShowNext] = useState(false);
   const [confirm, setConfirm] = useState<"book" | "lost" | "reopen" | "delete" | null>(null);
+  const [bookBank, setBookBank] = useState<string>("");
 
   const caseTasks = useMemo(() => db.tasks.filter((t) => t.caseId === id), [db.tasks, id]);
   const openTask = caseTasks.find((t) => t.status === "Open");
@@ -244,7 +245,7 @@ export default function CaseDetail({ id }: { id: number }) {
   const stageIdx = stages.findIndex((s) => s.label === c.stage);
   const editable = canEditCase(c);
   const isActive = c.caseStatus === "Active";
-  const rule = slaFor(db.slaRules, c.stage, c.bank);
+  const rule = slaFor(db.slaRules, c.stage, primaryBank(c));
   const daysInStage = isActive ? Math.max(0, Math.floor((Date.now() - new Date(stageEnteredAt(c, db.activities)).getTime()) / 86400000)) : null;
 
   const moveStage = (label: string) => {
@@ -271,8 +272,9 @@ export default function CaseDetail({ id }: { id: number }) {
               {c.closedDate && <span className="text-[11.5px] text-[var(--ink-faint)]">{c.caseStatus === "Lost" ? "lost" : "booked"} {fmtDate(c.closedDate)}</span>}
             </div>
             <h1 className="font-disp font-bold text-[24px] tracking-tight mt-1 mb-1">{c.customer}</h1>
-            <div className="flex flex-wrap gap-x-5 gap-y-1 text-[12.5px] text-[var(--ink-dim)]">
-              <span className="inline-flex items-center gap-1.5"><IBank size={14} className="text-[var(--ink-faint)]" /> {c.bank}</span>
+            <div className="flex flex-wrap items-center gap-x-5 gap-y-1.5 text-[12.5px] text-[var(--ink-dim)]">
+              <span className="inline-flex items-center gap-1.5"><IBank size={14} className="text-[var(--ink-faint)]" /> <BankChips c={c} max={3} /></span>
+              <span className="inline-flex items-center gap-1.5"><SourceChip source={c.source} />{c.partner && <span className="text-[var(--ink-faint)]">{c.partner.name} @ {c.partner.sharePct}%</span>}</span>
               <span className="mono">{fmtMoney(c.loanAmount)}</span>
               <span className="inline-flex items-center gap-1.5"><IClock size={14} className="text-[var(--ink-faint)]" /> {ageDays(c.createdAt)}d old</span>
               {daysInStage != null && rule && (
@@ -286,7 +288,13 @@ export default function CaseDetail({ id }: { id: number }) {
           <div className="ml-auto flex flex-wrap items-center gap-2">
             {isActive ? (
               <>
-                <button className="btn btn-ghost btn-sm" onClick={() => setConfirm("book")}>
+                <button
+                  className="btn btn-ghost btn-sm"
+                  onClick={() => {
+                    setBookBank(c.wonBank ?? c.banks[0] ?? db.banks[0]?.name ?? "");
+                    setConfirm("book");
+                  }}
+                >
                   Mark booked
                 </button>
                 <button className="btn btn-danger btn-sm" onClick={() => setConfirm("lost")}>
@@ -298,8 +306,8 @@ export default function CaseDetail({ id }: { id: number }) {
                 Reopen case
               </button>
             )}
-            {session?.role === "Admin" && (
-              <button className="btn btn-danger btn-sm" onClick={() => setConfirm("delete")} title="Delete case (Admin)">
+            {session?.role === "Head of Company" && (
+              <button className="btn btn-danger btn-sm" onClick={() => setConfirm("delete")} title="Delete case (Head of Company only)">
                 <ITrash size={14} />
               </button>
             )}
@@ -431,6 +439,31 @@ export default function CaseDetail({ id }: { id: number }) {
 
         {/* right rail */}
         <div className="space-y-4">
+          <CommissionPanel c={c} />
+
+          {isActive && editable && (
+            <div className="card p-4 anim-fade-up">
+              <h3 className="font-disp font-semibold text-[13.5px] m-0 mb-1">Submitted banks</h3>
+              <p className="text-[11px] text-[var(--ink-faint)] mt-0 mb-2.5">Toggle where this file is in play. The first bank sets the SLA override &amp; commission estimate.</p>
+              <div className="flex flex-wrap gap-1.5">
+                {db.banks.filter((b) => b.active).map((b) => {
+                  const on = c.banks.includes(b.name);
+                  return (
+                    <button
+                      key={b.id}
+                      className="chip transition-all"
+                      onClick={() => updateCase(c.id, { banks: on ? c.banks.filter((x) => x !== b.name) : [...c.banks, b.name] })}
+                      style={on ? { background: "rgba(87,194,234,0.12)", borderColor: "var(--sky)", color: "var(--sky)" } : { background: "var(--bg2)", borderColor: "var(--line)", color: "var(--ink-faint)" }}
+                    >
+                      {b.name}
+                    </button>
+                  );
+                })}
+              </div>
+              {c.banks.length === 0 && <p className="text-[11.5px] mt-2 mb-0" style={{ color: "var(--amber)" }}>Bank not yet decided.</p>}
+            </div>
+          )}
+
           <InstructionsPanel c={c} />
 
           <div className="card anim-fade-up">
@@ -477,11 +510,27 @@ export default function CaseDetail({ id }: { id: number }) {
         onClose={() => setConfirm(null)}
         tone="mint"
         title="Mark this case as booked?"
-        body={<span><strong>{c.caseNumber}</strong> · {c.customer} · {fmtMoney(c.loanAmount)} will be counted as closed business on {fmtDate(todayISO())}.</span>}
+        body={
+          <div>
+            <p className="mt-0 mb-3">
+              <strong>{c.caseNumber}</strong> · {c.customer} · {fmtMoney(c.loanAmount)} will be counted as closed business on {fmtDate(todayISO())}.
+            </p>
+            <label className="label">Which bank won the file?</label>
+            <select className="select" value={bookBank} onChange={(e) => setBookBank(e.target.value)}>
+              {c.banks.length > 0 && <optgroup label="Submitted to">{c.banks.map((b) => <option key={b}>{b}</option>)}</optgroup>}
+              <optgroup label="Other banks">
+                {db.banks.filter((b) => b.active && !c.banks.includes(b.name)).map((b) => (
+                  <option key={b.id}>{b.name}</option>
+                ))}
+              </optgroup>
+            </select>
+            <p className="text-[11px] text-[var(--ink-faint)] mt-2 mb-0">Commission is booked at that bank's rate · admin-editable in Banks &amp; rates.</p>
+          </div>
+        }
         confirmLabel="Book case"
         onConfirm={() => {
-          setCaseState(c.id, "Closed");
-          toast("success", `${c.caseNumber} booked — ${fmtMoney(c.loanAmount)} added to the book.`);
+          setCaseState(c.id, "Closed", bookBank);
+          toast("success", `${c.caseNumber} booked with ${bookBank} — ${fmtMoney(c.loanAmount)} added to the book.`);
         }}
       />
       <ConfirmModal

@@ -1,15 +1,16 @@
 import { createContext, useCallback, useContext, useEffect, useRef, useState } from "react";
 import type { ReactNode } from "react";
 import type {
-  Activity, AffordabilityCheck, CaseState, DB, Instruction, LoanCase, MasterItem, Route, SlaRule, StageItem, Task, User,
+  Activity, BankItem, CasePartner, CaseSource, CaseState, DB, LoanCase, MasterItem,
+  PartnerItem, PartnerKind, Role, Route, SlaRule, StageItem, Task, User,
 } from "./types";
+import { seedDb } from "./data";
 import { computeAffordability } from "./calc";
 import type { CalcInput } from "./calc";
-import { seedDb } from "./data";
-import { ageDays } from "./format";
+import { ageDays, daysBetween, primaryBank, todayISO } from "./format";
 
-const DB_KEY = "hfmc.casetracker.db.v4";
-const SESSION_KEY = "hfmc.casetracker.session.v4";
+const DB_KEY = "meridian.casetracker.db.v6";
+const SESSION_KEY = "meridian.casetracker.session.v6";
 
 export interface ToastMsg {
   id: number;
@@ -19,11 +20,12 @@ export interface ToastMsg {
 
 export interface NewCaseInput {
   customer: string;
-  bank: string;
+  banks: string[];
   loanAmount: number;
   stage: string;
   ownerId: number;
-  linkCheckId?: number;
+  source: CaseSource;
+  partner: CasePartner | null;
   task?: { description: string; dueDate: string; waitingFor: string; whyPending: string; ownerId: number };
 }
 
@@ -35,7 +37,12 @@ export interface TaskInput {
   dueDate: string;
 }
 
-type MasterKind = "stages" | "whyPending" | "waitingFor" | "banks";
+/* ---------------- role model ---------------- */
+
+const ISSUERS: Role[] = ["Head of Company", "PA to HoC", "Mortgage Head"];
+const FULL_SCOPE: Role[] = ["Head of Company", "PA to HoC", "Mortgage Head"];
+const ADMINS: Role[] = ["Head of Company", "Mortgage Head"];
+const TEAM_LEADERS: Role[] = ["Team Leader SPO", "Team Leader VRM"];
 
 interface StoreShape {
   db: DB;
@@ -49,31 +56,39 @@ interface StoreShape {
   dismissToast: (id: number) => void;
   createCase: (input: NewCaseInput) => LoanCase;
   updateCase: (id: number, patch: Partial<Omit<LoanCase, "id" | "createdAt">>) => void;
-  setCaseState: (id: number, state: CaseState, note?: string) => void;
   deleteCase: (id: number) => void;
+  setCaseState: (id: number, state: CaseState, wonBank?: string) => void;
   createTask: (caseId: number, input: TaskInput) => void;
-  updateTask: (id: number, patch: Partial<Omit<Task, "id" | "caseId" | "createdAt">>) => void;
+  updateTask: (id: number, patch: Partial<Omit<Task, "id" | "caseId" | "createdAt" | "createdBy">>) => void;
   completeTask: (id: number, remarks: string) => void;
   addInstruction: (caseId: number, input: { instruction: string; assignedTo: number; dueDate: string }) => void;
   completeInstruction: (id: number) => void;
-  runCheck: (input: CalcInput & { customerName: string }) => AffordabilityCheck;
-  attachCheck: (checkId: number, caseId: number) => void;
+  canInstruct: () => boolean;
+  runCheck: (input: CalcInput, customerName: string) => void;
+  createCaseFromCheck: (checkId: number) => LoanCase | null;
+  linkCheckToCase: (checkId: number, caseId: number) => void;
   saveUser: (u: User) => void;
   deleteUser: (id: number) => string | null;
-  addMaster: (kind: MasterKind, label: string) => string | null;
-  toggleMaster: (kind: MasterKind, id: number) => void;
-  deleteMaster: (kind: MasterKind, id: number) => string | null;
+  addMaster: (kind: "stages" | "whyPending" | "waitingFor", label: string) => string | null;
+  toggleMaster: (kind: "stages" | "whyPending" | "waitingFor", id: number) => void;
+  deleteMaster: (kind: "stages" | "whyPending" | "waitingFor", id: number) => string | null;
   moveStage: (id: number, dir: -1 | 1) => void;
-  addSlaRule: (rule: { stage: string; bank: string | null; maxDays: number }) => string | null;
-  updateSlaRule: (id: number, maxDays: number) => void;
-  toggleSlaRule: (id: number) => void;
-  deleteSlaRule: (id: number) => void;
+  addBank: (name: string, ratePct: number) => string | null;
+  updateBankRate: (id: number, ratePct: number) => void;
+  toggleBank: (id: number) => void;
+  deleteBank: (id: number) => string | null;
+  addPartner: (kind: PartnerKind, name: string, sharePct: number) => string | null;
+  updatePartnerShare: (id: number, sharePct: number) => void;
+  togglePartner: (id: number) => void;
+  deletePartner: (id: number) => string | null;
+  saveSla: (rule: Omit<SlaRule, "id"> & { id?: number }) => void;
+  toggleSla: (id: number) => void;
+  deleteSla: (id: number) => void;
   userById: (id: number) => User | undefined;
   visibleCases: () => LoanCase[];
   visibleTasks: () => Task[];
   canEditCase: (c: LoanCase) => boolean;
   canEditTask: (t: Task) => boolean;
-  canInstruct: () => boolean;
 }
 
 const Ctx = createContext<StoreShape | null>(null);
@@ -108,43 +123,12 @@ function loadDb(): DB {
     const raw = localStorage.getItem(DB_KEY);
     if (raw) {
       const parsed = JSON.parse(raw) as DB;
-      if (parsed && parsed.version === 5 && Array.isArray(parsed.cases) && Array.isArray(parsed.slaRules)) return parsed;
+      if (parsed && parsed.version === 6 && Array.isArray(parsed.cases) && Array.isArray(parsed.partners)) return parsed;
     }
   } catch {
     /* fall through to seed */
   }
   return seedDb();
-}
-
-/* ---------------- pure report helpers (shared with views) ---------------- */
-
-export function slaFor(rules: SlaRule[], stage: string, bank: string): SlaRule | null {
-  const candidates = rules.filter((r) => r.active && r.stage === stage);
-  return candidates.find((r) => r.bank === bank) ?? candidates.find((r) => r.bank === null) ?? null;
-}
-
-export function stageEnteredAt(c: LoanCase, activities: Activity[]): string {
-  const moves = activities.filter((a) => a.caseId === c.id && a.action === "Stage moved");
-  return moves.length ? moves[moves.length - 1].at : c.createdAt;
-}
-
-export interface Escalation {
-  c: LoanCase;
-  rule: SlaRule;
-  daysInStage: number;
-  overBy: number;
-}
-
-export function computeEscalations(db: DB, cases: LoanCase[]): Escalation[] {
-  const out: Escalation[] = [];
-  for (const c of cases) {
-    if (c.caseStatus !== "Active") continue;
-    const rule = slaFor(db.slaRules, c.stage, c.bank);
-    if (!rule) continue;
-    const daysInStage = Math.max(0, Math.floor((Date.now() - new Date(stageEnteredAt(c, db.activities)).getTime()) / 86400000));
-    if (daysInStage > rule.maxDays) out.push({ c, rule, daysInStage, overBy: daysInStage - rule.maxDays });
-  }
-  return out.sort((a, b) => b.overBy - a.overBy);
 }
 
 export function StoreProvider({ children }: { children: ReactNode }) {
@@ -177,7 +161,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     toastId.current += 1;
     const id = toastId.current;
     setToasts((t) => [...t, { id, kind, msg }]);
-    window.setTimeout(() => setToasts((t) => t.filter((x) => x.id !== id)), 4000);
+    window.setTimeout(() => setToasts((t) => t.filter((x) => x.id !== id)), 4200);
   }, []);
 
   const dismissToast = useCallback((id: number) => {
@@ -185,7 +169,6 @@ export function StoreProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const session = sessionId != null ? db.users.find((u) => u.id === sessionId) ?? null : null;
-
   const userById = useCallback((id: number) => db.users.find((u) => u.id === id), [db]);
 
   const logAct = (list: Activity[], caseId: number, userId: number, action: string, oldValue?: string, newValue?: string): Activity[] => [
@@ -199,7 +182,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     (email: string, password: string): string | null => {
       const u = db.users.find((x) => x.email.toLowerCase() === email.trim().toLowerCase());
       if (!u) return "No account found with that email.";
-      if (!u.active) return "This account has been deactivated. Contact your admin.";
+      if (!u.active) return "This account has been deactivated. Contact the Head of Company.";
       if (u.password !== password) return "Incorrect password. Try again.";
       setSessionId(u.id);
       localStorage.setItem(SESSION_KEY, String(u.id));
@@ -213,12 +196,14 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     localStorage.removeItem(SESSION_KEY);
   }, []);
 
-  /* ---------------- scoping ---------------- */
+  /* ---------------- permissions ---------------- */
+
+  const canInstruct = useCallback(() => !!session && ISSUERS.includes(session.role), [session]);
 
   const visibleCases = useCallback((): LoanCase[] => {
     if (!session) return [];
-    if (session.role === "Admin") return db.cases;
-    if (session.role === "Team Lead")
+    if (FULL_SCOPE.includes(session.role)) return db.cases;
+    if (TEAM_LEADERS.includes(session.role))
       return db.cases.filter((c) => {
         if (c.ownerId === session.id) return true;
         const owner = db.users.find((u) => u.id === c.ownerId);
@@ -229,8 +214,8 @@ export function StoreProvider({ children }: { children: ReactNode }) {
 
   const visibleTasks = useCallback((): Task[] => {
     if (!session) return [];
-    if (session.role === "Admin") return db.tasks;
-    if (session.role === "Team Lead") {
+    if (FULL_SCOPE.includes(session.role)) return db.tasks;
+    if (TEAM_LEADERS.includes(session.role)) {
       const teamIds = new Set(db.users.filter((u) => u.team === session.team).map((u) => u.id));
       const caseIds = new Set(visibleCases().map((c) => c.id));
       return db.tasks.filter((t) => caseIds.has(t.caseId) || teamIds.has(t.ownerId));
@@ -241,8 +226,8 @@ export function StoreProvider({ children }: { children: ReactNode }) {
   const canEditCase = useCallback(
     (c: LoanCase): boolean => {
       if (!session) return false;
-      if (session.role === "Admin") return true;
-      if (session.role === "Team Lead") {
+      if (FULL_SCOPE.includes(session.role)) return true;
+      if (TEAM_LEADERS.includes(session.role)) {
         if (c.ownerId === session.id) return true;
         const owner = db.users.find((u) => u.id === c.ownerId);
         return owner?.team === session.team;
@@ -255,8 +240,8 @@ export function StoreProvider({ children }: { children: ReactNode }) {
   const canEditTask = useCallback(
     (t: Task): boolean => {
       if (!session) return false;
-      if (session.role === "Admin") return true;
-      if (session.role === "Team Lead") {
+      if (FULL_SCOPE.includes(session.role)) return true;
+      if (TEAM_LEADERS.includes(session.role)) {
         if (t.ownerId === session.id) return true;
         const owner = db.users.find((u) => u.id === t.ownerId);
         return owner?.team === session.team;
@@ -265,10 +250,6 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     },
     [db.users, session]
   );
-
-  const canInstruct = useCallback((): boolean => {
-    return session?.role === "Admin" || session?.role === "Team Lead";
-  }, [session]);
 
   /* ---------------- cases ---------------- */
 
@@ -280,12 +261,15 @@ export function StoreProvider({ children }: { children: ReactNode }) {
         id: nextId(db.cases),
         caseNumber: `CASE-${String(maxNum + 1).padStart(6, "0")}`,
         customer: input.customer.trim(),
-        bank: input.bank,
+        banks: input.banks,
+        wonBank: null,
         loanAmount: input.loanAmount,
         stage: input.stage,
         caseStatus: "Active",
         closedDate: null,
         ownerId: input.ownerId,
+        source: input.source,
+        partner: input.partner,
         createdAt: nowISO(),
         updatedAt: nowISO(),
       };
@@ -310,15 +294,10 @@ export function StoreProvider({ children }: { children: ReactNode }) {
             },
           ];
         }
-        return {
-          ...prev,
-          cases: [...prev.cases, c],
-          tasks,
-          activities: logAct(prev.activities, c.id, me?.id ?? 0, "Case created", undefined, c.stage),
-          affordabilityChecks: input.linkCheckId
-            ? prev.affordabilityChecks.map((k) => (k.id === input.linkCheckId ? { ...k, caseId: c.id } : k))
-            : prev.affordabilityChecks,
-        };
+        let acts = logAct(prev.activities, c.id, me?.id ?? 0, "Case created", undefined, c.stage);
+        if (c.partner)
+          acts = logAct(acts, c.id, me?.id ?? 0, "Source logged", undefined, `${c.source} · ${c.partner.name} @ ${c.partner.sharePct}%`);
+        return { ...prev, cases: [...prev.cases, c], tasks, activities: acts };
       });
       return c;
     },
@@ -335,15 +314,13 @@ export function StoreProvider({ children }: { children: ReactNode }) {
         if (patch.stage !== undefined && patch.stage !== before.stage)
           acts = logAct(acts, id, me?.id ?? 0, "Stage moved", before.stage, patch.stage);
         if (patch.ownerId !== undefined && patch.ownerId !== before.ownerId)
-          acts = logAct(
-            acts, id, me?.id ?? 0, "Owner changed",
+          acts = logAct(acts, id, me?.id ?? 0, "Owner changed",
             prev.users.find((u) => u.id === before.ownerId)?.name ?? "—",
-            prev.users.find((u) => u.id === patch.ownerId)?.name ?? "—"
-          );
+            prev.users.find((u) => u.id === patch.ownerId)?.name ?? "—");
         if (patch.customer !== undefined && patch.customer !== before.customer)
           acts = logAct(acts, id, me?.id ?? 0, "Customer updated", before.customer, patch.customer);
-        if (patch.bank !== undefined && patch.bank !== before.bank)
-          acts = logAct(acts, id, me?.id ?? 0, "Bank updated", before.bank, patch.bank);
+        if (patch.banks !== undefined && JSON.stringify(patch.banks) !== JSON.stringify(before.banks))
+          acts = logAct(acts, id, me?.id ?? 0, "Bank submissions updated", before.banks.join(", ") || "TBC", patch.banks.join(", ") || "TBC");
         if (patch.loanAmount !== undefined && patch.loanAmount !== before.loanAmount)
           acts = logAct(acts, id, me?.id ?? 0, "Loan amount updated", String(before.loanAmount), String(patch.loanAmount));
         return {
@@ -357,19 +334,16 @@ export function StoreProvider({ children }: { children: ReactNode }) {
   );
 
   const setCaseState = useCallback(
-    (id: number, state: CaseState, note?: string) => {
+    (id: number, state: CaseState, wonBank?: string) => {
       const me = session;
       setDb((prev) => {
         const before = prev.cases.find((c) => c.id === id);
         if (!before) return prev;
         let acts = prev.activities;
-        if (state === "Active") {
-          acts = logAct(acts, id, me?.id ?? 0, "Case reopened", before.caseStatus);
-        } else if (state === "Closed") {
-          acts = logAct(acts, id, me?.id ?? 0, "Case booked", before.stage, "Closed");
-        } else {
-          acts = logAct(acts, id, me?.id ?? 0, "Case marked lost", before.stage, note || undefined);
-        }
+        if (state === "Closed")
+          acts = logAct(acts, id, me?.id ?? 0, "Case booked", undefined, wonBank ?? before.wonBank ?? "—");
+        if (state === "Lost") acts = logAct(acts, id, me?.id ?? 0, "Case marked lost", before.stage);
+        if (state === "Active") acts = logAct(acts, id, me?.id ?? 0, "Case reopened", before.caseStatus);
         return {
           ...prev,
           cases: prev.cases.map((c) =>
@@ -377,8 +351,9 @@ export function StoreProvider({ children }: { children: ReactNode }) {
               ? {
                   ...c,
                   caseStatus: state,
-                  closedDate: state === "Active" ? null : new Date().toISOString().slice(0, 10),
-                  stage: state === "Closed" ? (prev.stages.some((s) => s.label === "Closed") ? "Closed" : c.stage) : c.stage,
+                  wonBank: state === "Closed" ? wonBank ?? c.wonBank ?? c.banks[0] ?? null : state === "Active" ? null : c.wonBank,
+                  closedDate: state === "Active" ? null : todayISO(),
+                  stage: state === "Closed" ? "Closed" : c.stage,
                   updatedAt: nowISO(),
                 }
               : c
@@ -395,8 +370,8 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       ...prev,
       cases: prev.cases.filter((c) => c.id !== id),
       tasks: prev.tasks.filter((t) => t.caseId !== id),
-      activities: prev.activities.filter((a) => a.caseId !== id),
       instructions: prev.instructions.filter((i) => i.caseId !== id),
+      activities: prev.activities.filter((a) => a.caseId !== id),
       affordabilityChecks: prev.affordabilityChecks.map((k) => (k.caseId === id ? { ...k, caseId: null } : k)),
     }));
   }, []);
@@ -429,7 +404,9 @@ export function StoreProvider({ children }: { children: ReactNode }) {
           completedAt: null,
           remarks: "",
         };
-        acts = logAct(acts, caseId, me?.id ?? 0, "Task opened", undefined, `${t.description} · due ${t.dueDate}`);
+        const byName = prev.users.find((u) => u.id === t.createdBy)?.name ?? "—";
+        const toName = prev.users.find((u) => u.id === t.ownerId)?.name ?? "—";
+        acts = logAct(acts, caseId, me?.id ?? 0, t.ownerId === t.createdBy ? "Task opened" : `Task assigned to ${toName} (by ${byName})`, undefined, `${t.description} · due ${t.dueDate}`);
         return { ...prev, tasks: [...tasks, t], activities: acts };
       });
     },
@@ -437,7 +414,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
   );
 
   const updateTask = useCallback(
-    (id: number, patch: Partial<Omit<Task, "id" | "caseId" | "createdAt">>) => {
+    (id: number, patch: Partial<Omit<Task, "id" | "caseId" | "createdAt" | "createdBy">>) => {
       const me = session;
       setDb((prev) => {
         const before = prev.tasks.find((t) => t.id === id);
@@ -487,21 +464,22 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     (caseId: number, input: { instruction: string; assignedTo: number; dueDate: string }) => {
       const me = session;
       setDb((prev) => {
-        const inst: Instruction = {
-          id: nextId(prev.instructions),
+        const list = prev.instructions;
+        const i = {
+          id: nextId(list),
           caseId,
           issuedBy: me?.id ?? 0,
           instruction: input.instruction.trim(),
           assignedTo: input.assignedTo,
           dueDate: input.dueDate,
-          status: "Open",
+          status: "Open" as const,
           createdAt: nowISO(),
           completedAt: null,
         };
         return {
           ...prev,
-          instructions: [...prev.instructions, inst],
-          activities: logAct(prev.activities, caseId, me?.id ?? 0, "Instruction issued", undefined, inst.instruction),
+          instructions: [...list, i],
+          activities: logAct(prev.activities, caseId, me?.id ?? 0, "Instruction issued", undefined, i.instruction),
         };
       });
     },
@@ -524,47 +502,105 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     [session]
   );
 
-  /* ---------------- affordability calculator ---------------- */
+  /* ---------------- affordability ---------------- */
 
   const runCheck = useCallback(
-    (input: CalcInput & { customerName: string }): AffordabilityCheck => {
+    (input: CalcInput, customerName: string) => {
       const me = session;
       const r = computeAffordability(input);
-      const check: AffordabilityCheck = {
-        id: nextId(db.affordabilityChecks),
-        caseId: null,
-        customerName: input.customerName.trim() || "Unnamed enquiry",
-        monthlyIncome: input.monthlyIncome,
-        otherIncome: input.otherIncome,
-        existingEmis: input.existingEmis,
-        age: input.age,
-        employmentType: input.employmentType,
-        propertyValue: input.propertyValue,
-        bank: input.bank,
-        interestRate: r.rateUsed,
-        tenureYears: r.tenureUsed,
-        applicableLtv: r.applicableLtv,
-        maxLoanByLtv: r.maxLoanByLtv,
-        maxDbrPct: r.maxDbrPct,
-        availableDbrEmi: r.availableDbrEmi,
-        maxLoanByDbr: r.maxLoanByDbr,
-        maxTenureByAge: r.maxTenureByAge,
-        finalEligibleLoan: r.finalEligibleLoan,
-        estimatedEmi: r.estimatedEmi,
-        eligible: r.eligible,
-        createdBy: me?.id ?? 0,
-        createdAt: nowISO(),
-      };
-      setDb((prev) => ({ ...prev, affordabilityChecks: [...prev.affordabilityChecks, check] }));
-      return check;
+      setDb((prev) => ({
+        ...prev,
+        affordabilityChecks: [
+          ...prev.affordabilityChecks,
+          {
+            id: nextId(prev.affordabilityChecks),
+            caseId: null,
+            customerName: customerName.trim(),
+            monthlyIncome: input.monthlyIncome,
+            otherIncome: input.otherIncome,
+            existingEmis: input.existingEmis,
+            age: input.age,
+            employmentType: input.employmentType,
+            propertyValue: input.propertyValue,
+            bank: input.bank,
+            interestRate: r.rateUsed,
+            tenureYears: r.tenureUsed,
+            applicableLtv: r.applicableLtv,
+            maxLoanByLtv: r.maxLoanByLtv,
+            maxDbrPct: r.maxDbrPct,
+            availableDbrEmi: r.availableDbrEmi,
+            maxLoanByDbr: r.maxLoanByDbr,
+            maxTenureByAge: r.maxTenureByAge,
+            finalEligibleLoan: r.finalEligibleLoan,
+            estimatedEmi: r.estimatedEmi,
+            eligible: r.eligible,
+            createdBy: me?.id ?? 0,
+            createdAt: nowISO(),
+          },
+        ],
+      }));
     },
-    [db.affordabilityChecks, session]
+    [session]
   );
 
-  const attachCheck = useCallback((checkId: number, caseId: number) => {
+  const createCaseFromCheck = useCallback(
+    (checkId: number, submitToBank = true): LoanCase | null => {
+      const me = session;
+      const k = db.affordabilityChecks.find((x) => x.id === checkId);
+      if (!k || !me) return null;
+      const banks = submitToBank ? [k.bank] : [];
+      const maxNum = db.cases.reduce((m, c) => Math.max(m, parseInt(c.caseNumber.split("-")[1] ?? "0", 10)), 0);
+      const c: LoanCase = {
+        id: nextId(db.cases),
+        caseNumber: `CASE-${String(maxNum + 1).padStart(6, "0")}`,
+        customer: k.customerName,
+        banks,
+        wonBank: null,
+        loanAmount: k.finalEligibleLoan,
+        stage: "New Login",
+        caseStatus: "Active",
+        closedDate: null,
+        ownerId: me.id,
+        source: "Direct",
+        partner: null,
+        createdAt: nowISO(),
+        updatedAt: nowISO(),
+      };
+      setDb((prev) => {
+        let tasks = prev.tasks;
+        const first: Task = {
+          id: nextId(tasks),
+          caseId: c.id,
+          description: `Collect income & property documents — file assessed at ${k.bank} for AED ${(k.finalEligibleLoan / 1000).toFixed(0)}K`,
+          ownerId: me.id,
+          createdBy: me.id,
+          waitingFor: "Client",
+          whyPending: "Awaiting client documents",
+          createdAt: nowISO(),
+          dueDate: new Date(Date.now() + 3 * 86400000).toISOString().slice(0, 10),
+          status: "Open",
+          completedAt: null,
+          remarks: "",
+        };
+        tasks = [...tasks, first];
+        return {
+          ...prev,
+          cases: [...prev.cases, c],
+          tasks,
+          affordabilityChecks: prev.affordabilityChecks.map((x) => (x.id === checkId ? { ...x, caseId: c.id } : x)),
+          activities: logAct(logAct([], c.id, me.id, "Case created", undefined, c.stage), c.id, me.id, "Affordability check linked", `#${k.id}`),
+        };
+      });
+      return c;
+    },
+    [db.affordabilityChecks, db.cases, session]
+  );
+
+  const linkCheckToCase = useCallback((checkId: number, caseId: number) => {
     setDb((prev) => ({
       ...prev,
-      affordabilityChecks: prev.affordabilityChecks.map((k) => (k.id === checkId ? { ...k, caseId } : k)),
+      affordabilityChecks: prev.affordabilityChecks.map((x) => (x.id === checkId ? { ...x, caseId } : x)),
+      activities: logAct(prev.activities, caseId, prev.users[0]?.id ?? 0, "Affordability check linked", `#${checkId}`),
     }));
   }, []);
 
@@ -594,12 +630,13 @@ export function StoreProvider({ children }: { children: ReactNode }) {
 
   /* ---------------- admin: master lists ---------------- */
 
+  type MasterKind = "stages" | "whyPending" | "waitingFor";
+
   const addMaster = useCallback(
     (kind: MasterKind, label: string): string | null => {
       const clean = label.trim();
       if (!clean) return "Label cannot be empty.";
-      const list = db[kind];
-      if (list.some((m) => m.label.toLowerCase() === clean.toLowerCase())) return "That label already exists.";
+      if (db[kind].some((m) => m.label.toLowerCase() === clean.toLowerCase())) return "That label already exists.";
       setDb((prev) => {
         if (kind === "stages") {
           const maxSort = (prev.stages as StageItem[]).reduce((m, s) => Math.max(m, s.sortOrder), 0);
@@ -629,7 +666,6 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       if (kind === "stages") used = db.cases.filter((c) => c.stage === item.label).length;
       if (kind === "whyPending") used = db.tasks.filter((t) => t.status === "Open" && t.whyPending === item.label).length;
       if (kind === "waitingFor") used = db.tasks.filter((t) => t.status === "Open" && t.waitingFor === item.label).length;
-      if (kind === "banks") used = db.cases.filter((c) => c.caseStatus === "Active" && c.bank === item.label).length;
       if (used > 0) return `Blocked: "${item.label}" is in use by ${used} record(s). Deactivate it instead.`;
       setDb((prev) => ({ ...prev, [kind]: (prev[kind] as MasterItem[]).filter((m) => m.id !== id) }));
       return null;
@@ -652,40 +688,102 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     });
   }, []);
 
-  /* ---------------- admin: SLA rules ---------------- */
+  /* ---------------- admin: banks ---------------- */
 
-  const addSlaRule = useCallback(
-    (rule: { stage: string; bank: string | null; maxDays: number }): string | null => {
-      if (rule.maxDays < 1) return "Max days must be at least 1.";
-      const dup = db.slaRules.find((r) => r.stage === rule.stage && r.bank === rule.bank && r.active);
-      if (dup) return `A rule already exists for ${rule.stage}${rule.bank ? ` · ${rule.bank}` : ""}. Edit it instead.`;
-      setDb((prev) => ({ ...prev, slaRules: [...prev.slaRules, { id: nextId(prev.slaRules), ...rule, active: true }] }));
+  const addBank = useCallback(
+    (name: string, ratePct: number): string | null => {
+      const clean = name.trim();
+      if (!clean) return "Bank name cannot be empty.";
+      if (db.banks.some((b) => b.name.toLowerCase() === clean.toLowerCase())) return "That bank already exists.";
+      if (Number.isNaN(ratePct) || ratePct < 0 || ratePct > 10) return "Rate must be between 0 and 10%.";
+      setDb((prev) => ({ ...prev, banks: [...prev.banks, { id: nextId(prev.banks), name: clean, ratePct, active: true }] }));
       return null;
     },
-    [db.slaRules]
+    [db.banks]
   );
 
-  const updateSlaRule = useCallback((id: number, maxDays: number) => {
-    setDb((prev) => ({ ...prev, slaRules: prev.slaRules.map((r) => (r.id === id ? { ...r, maxDays: Math.max(1, maxDays) } : r)) }));
+  const updateBankRate = useCallback((id: number, ratePct: number) => {
+    setDb((prev) => ({ ...prev, banks: prev.banks.map((b) => (b.id === id ? { ...b, ratePct } : b)) }));
   }, []);
 
-  const toggleSlaRule = useCallback((id: number) => {
+  const toggleBank = useCallback((id: number) => {
+    setDb((prev) => ({ ...prev, banks: prev.banks.map((b) => (b.id === id ? { ...b, active: !b.active } : b)) }));
+  }, []);
+
+  const deleteBank = useCallback(
+    (id: number): string | null => {
+      const item = db.banks.find((b) => b.id === id);
+      if (!item) return "Bank not found.";
+      const used = db.cases.filter((c) => c.banks.includes(item.name) || c.wonBank === item.name).length;
+      if (used > 0) return `Blocked: "${item.name}" is referenced by ${used} case(s). Deactivate it instead.`;
+      setDb((prev) => ({ ...prev, banks: prev.banks.filter((b) => b.id !== id) }));
+      return null;
+    },
+    [db.banks, db.cases]
+  );
+
+  /* ---------------- admin: partners ---------------- */
+
+  const addPartner = useCallback(
+    (kind: PartnerKind, name: string, sharePct: number): string | null => {
+      const clean = name.trim();
+      if (!clean) return "Name cannot be empty.";
+      if (db.partners.some((p) => p.name.toLowerCase() === clean.toLowerCase())) return "That partner already exists.";
+      if (Number.isNaN(sharePct) || sharePct <= 0 || sharePct > 100) return "Share must be between 1 and 100%.";
+      setDb((prev) => ({ ...prev, partners: [...prev.partners, { id: nextId(prev.partners), kind, name: clean, defaultSharePct: sharePct, active: true }] }));
+      return null;
+    },
+    [db.partners]
+  );
+
+  const updatePartnerShare = useCallback((id: number, sharePct: number) => {
+    setDb((prev) => ({ ...prev, partners: prev.partners.map((p) => (p.id === id ? { ...p, defaultSharePct: sharePct } : p)) }));
+  }, []);
+
+  const togglePartner = useCallback((id: number) => {
+    setDb((prev) => ({ ...prev, partners: prev.partners.map((p) => (p.id === id ? { ...p, active: !p.active } : p)) }));
+  }, []);
+
+  const deletePartner = useCallback(
+    (id: number): string | null => {
+      const item = db.partners.find((p) => p.id === id);
+      if (!item) return "Partner not found.";
+      const used = db.cases.filter((c) => c.partner?.name === item.name).length;
+      if (used > 0) return `Blocked: "${item.name}" is on ${used} case(s). Deactivate instead.`;
+      setDb((prev) => ({ ...prev, partners: prev.partners.filter((p) => p.id !== id) }));
+      return null;
+    },
+    [db.partners, db.cases]
+  );
+
+  /* ---------------- admin: SLA rules ---------------- */
+
+  const saveSla = useCallback((rule: Omit<SlaRule, "id"> & { id?: number }) => {
+    setDb((prev) => {
+      if (rule.id != null)
+        return { ...prev, slaRules: prev.slaRules.map((r) => (r.id === rule.id ? { ...rule, id: rule.id! } : r)) };
+      return { ...prev, slaRules: [...prev.slaRules, { ...rule, id: nextId(prev.slaRules) }] };
+    });
+  }, []);
+
+  const toggleSla = useCallback((id: number) => {
     setDb((prev) => ({ ...prev, slaRules: prev.slaRules.map((r) => (r.id === id ? { ...r, active: !r.active } : r)) }));
   }, []);
 
-  const deleteSlaRule = useCallback((id: number) => {
+  const deleteSla = useCallback((id: number) => {
     setDb((prev) => ({ ...prev, slaRules: prev.slaRules.filter((r) => r.id !== id) }));
   }, []);
 
   const value: StoreShape = {
     db, session, route, toasts, nav, login, logout, toast, dismissToast,
-    createCase, updateCase, setCaseState, deleteCase,
-    createTask, updateTask, completeTask,
-    addInstruction, completeInstruction,
-    runCheck, attachCheck,
+    createCase, updateCase, deleteCase, setCaseState, createTask, updateTask, completeTask,
+    addInstruction, completeInstruction, canInstruct,
+    runCheck, createCaseFromCheck, linkCheckToCase,
     saveUser, deleteUser, addMaster, toggleMaster, deleteMaster, moveStage,
-    addSlaRule, updateSlaRule, toggleSlaRule, deleteSlaRule,
-    userById, visibleCases, visibleTasks, canEditCase, canEditTask, canInstruct,
+    addBank, updateBankRate, toggleBank, deleteBank,
+    addPartner, updatePartnerShare, togglePartner, deletePartner,
+    saveSla, toggleSla, deleteSla,
+    userById, visibleCases, visibleTasks, canEditCase, canEditTask,
   };
 
   return <Ctx.Provider value={value}>{children}</Ctx.Provider>;
@@ -705,23 +803,28 @@ export interface Kpis {
   atRisk: number;
   noAction: number;
   openTasks: number;
-  escalations: number;
+  dueToday: number;
   pipelineValue: number;
+  estCommission: number;
+  escalations: number;
 }
 
 export function computeKpis(
   cases: LoanCase[],
   tasks: Task[],
   statusOf: (c: LoanCase) => "On Track" | "At Risk" | "Overdue" | "No Action",
-  escalationCount: number
+  banks: BankItem[],
+  escalations: number
 ): Kpis {
   const open = cases.filter((c) => c.caseStatus === "Active");
-  let overdue = 0, atRisk = 0, noAction = 0;
+  let overdue = 0, atRisk = 0, noAction = 0, estCommission = 0;
   for (const c of open) {
     const s = statusOf(c);
     if (s === "Overdue") overdue += 1;
     else if (s === "At Risk") atRisk += 1;
     else if (s === "No Action") noAction += 1;
+    const b = banks.find((x) => x.name === primaryBank(c));
+    estCommission += b ? (c.loanAmount * b.ratePct) / 100 : 0;
   }
   const openTasks = tasks.filter((t) => t.status === "Open");
   return {
@@ -730,24 +833,53 @@ export function computeKpis(
     atRisk,
     noAction,
     openTasks: openTasks.length,
-    escalations: escalationCount,
+    dueToday: openTasks.filter((t) => t.dueDate === todayISO()).length,
     pipelineValue: open.reduce((s, c) => s + c.loanAmount, 0),
+    estCommission: Math.round(estCommission),
+    escalations,
   };
 }
 
 export function activityPerDay(activities: Activity[], days: number): number[] {
   const out = new Array(days).fill(0) as number[];
+  const today = new Date();
   for (const a of activities) {
     const d = new Date(a.at);
-    const today = new Date();
-    const diff = Math.floor(
-      (new Date(today.getFullYear(), today.getMonth(), today.getDate()).getTime() -
-        new Date(d.getFullYear(), d.getMonth(), d.getDate()).getTime()) /
-        86400000
-    );
+    const diff = Math.floor((today.setHours(0, 0, 0, 0) - d.setHours(0, 0, 0, 0)) / 86400000);
     if (diff >= 0 && diff < days) out[days - 1 - diff] += 1;
   }
   return out;
+}
+
+export function stageEnteredAt(c: LoanCase, activities: Activity[]): string {
+  const moves = activities
+    .filter((a) => a.caseId === c.id && a.action === "Stage moved" && a.newValue === c.stage)
+    .sort((a, b) => b.at.localeCompare(a.at));
+  return moves[0]?.at ?? c.createdAt;
+}
+
+export function slaFor(rules: SlaRule[], stage: string, bank: string | null): SlaRule | null {
+  const candidates = rules.filter((r) => r.active && r.stage === stage);
+  return candidates.find((r) => r.bank === bank) ?? candidates.find((r) => r.bank === null) ?? null;
+}
+
+export interface Escalation {
+  c: LoanCase;
+  rule: SlaRule;
+  days: number;
+}
+
+export function computeEscalations(db: DB, cases: LoanCase[]): Escalation[] {
+  const out: Escalation[] = [];
+  for (const c of cases) {
+    if (c.caseStatus !== "Active") continue;
+    const bank = primaryBank(c);
+    const rule = slaFor(db.slaRules, c.stage, bank);
+    if (!rule) continue;
+    const days = Math.max(0, daysBetween(stageEnteredAt(c, db.activities).slice(0, 10), todayISO()));
+    if (days > rule.maxDays) out.push({ c, rule, days });
+  }
+  return out.sort((a, b) => b.days - a.days);
 }
 
 export { ageDays };
