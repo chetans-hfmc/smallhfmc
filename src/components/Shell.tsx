@@ -266,7 +266,7 @@ export default function Shell({ children }: { children: ReactNode }) {
 
   const navItems: { label: string; route: Route; icon: (p: { size?: number; className?: string }) => ReactNode }[] = [
     { label: "Dashboard", route: { name: "dashboard" as const }, icon: IGrid },
-    { label: "Affordability", route: { name: "calculator" as const }, icon: ICalc },
+    { label: "Calculator", route: { name: "calculator" as const }, icon: ICalc },
     { label: "Task Queue", route: { name: "tasks" as const }, icon: ITasks },
     { label: "Reports", route: { name: "reports" as const }, icon: IChart },
     ...(isAdmin ? [{ label: "Admin", route: { name: "admin" as const }, icon: IShield }] : []),
@@ -276,7 +276,7 @@ export default function Shell({ children }: { children: ReactNode }) {
     route.name === "dashboard" ? "Dashboard" :
     route.name === "case" ? "Case 360" :
     route.name === "tasks" ? "Task Queue" :
-    route.name === "calculator" ? "Affordability" :
+    route.name === "calculator" ? "Calculator" :
     route.name === "reports" ? "Reports" : "Admin";
 
   return (

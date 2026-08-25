@@ -7,7 +7,7 @@ import CaseDetail from "./views/CaseDetail";
 import Tasks from "./views/Tasks";
 import Reports from "./views/Reports";
 import Admin from "./views/Admin";
-import Affordability from "./views/Affordability";
+import Calculator from "./views/Calculator";
 
 function Router() {
   const { session, route } = useStore();
@@ -27,6 +27,7 @@ function Router() {
         {route.name === "dashboard" && <Dashboard />}
         {route.name === "case" && <CaseDetail id={route.id} />}
         {route.name === "tasks" && <Tasks />}
+        {route.name === "calculator" && <Calculator />}
         {route.name === "reports" && <Reports />}
         {route.name === "admin" && <Admin />}
       </Shell>

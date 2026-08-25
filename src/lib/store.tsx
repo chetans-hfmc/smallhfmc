@@ -1,7 +1,7 @@
 import { createContext, useCallback, useContext, useEffect, useRef, useState } from "react";
 import type { ReactNode } from "react";
 import type {
-  Activity, BankItem, CasePartner, CaseSource, CaseState, DB, Designation, LoanCase, MasterItem,
+  Activity, AffordabilityCheck, BankItem, CasePartner, CaseSource, CaseState, DB, Designation, LoanCase, MasterItem,
   PartnerItem, PartnerKind, Route, SlaRule, StageItem, Task, User,
 } from "./types";
 import { seedDb } from "./data";
@@ -83,7 +83,7 @@ interface StoreShape {
   updateDesignation: (id: number, patch: Partial<Omit<Designation, "id" | "builtIn" | "super">>) => void;
   deleteDesignation: (id: number) => string | null;
   runCheck: (input: CalcInput, customerName: string) => void;
-  createCaseFromCheck: (checkId: number, submitToBank?: boolean) => LoanCase | null;
+  createCaseFromCheck: (checkId: number, submitToBank?: boolean, checkOverride?: AffordabilityCheck) => LoanCase | null;
   linkCheckToCase: (checkId: number, caseId: number) => void;
   saveUser: (u: User) => void;
   deleteUser: (id: number) => string | null;
@@ -576,11 +576,11 @@ export function StoreProvider({ children }: { children: ReactNode }) {
   );
 
   const createCaseFromCheck = useCallback(
-    (checkId: number, submitToBank = true): LoanCase | null => {
+    (checkId: number, submitToBank = true, checkOverride?: AffordabilityCheck): LoanCase | null => {
       const me = session;
-      const k = db.affordabilityChecks.find((x) => x.id === checkId);
+      const k = checkOverride ?? db.affordabilityChecks.find((x) => x.id === checkId);
       if (!k || !me) return null;
-      const banks = submitToBank ? [k.bank] : [];
+      const banks = submitToBank && k.bank ? [k.bank] : [];
       const maxNum = db.cases.reduce((m, c) => Math.max(m, parseInt(c.caseNumber.split("-")[1] ?? "0", 10)), 0);
       const c: LoanCase = {
         id: nextId(db.cases),
