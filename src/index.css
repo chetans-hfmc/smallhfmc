@@ -378,6 +378,188 @@ input[type="date"]::-webkit-calendar-picker-indicator { opacity: 0.55; cursor: p
 ::-webkit-scrollbar-thumb { background: var(--line); border-radius: 6px; border: 2px solid var(--bg); }
 ::-webkit-scrollbar-thumb:hover { background: var(--ink-faint); }
 
+/* ---------- bank-facing document — fixed paper palette in BOTH themes ---------- */
+/* The report is a document preview: it must read like printed paper whether the
+   app around it is light or dark, and mirror the PDF one-to-one. No theme vars here. */
+.paper {
+  background: #ffffff;
+  color: #1b262b;
+  border: 1px solid #d8e0e3;
+  border-radius: 6px;
+  box-shadow:
+    0 1px 2px rgba(15, 23, 42, 0.08),
+    0 26px 60px -18px rgba(15, 23, 42, 0.5);
+  font-family: var(--font-body);
+  overflow: hidden;
+}
+html[data-theme="light"] .paper {
+  border-color: #dbe3e6;
+  box-shadow:
+    0 1px 2px rgba(15, 23, 42, 0.05),
+    0 18px 44px -16px rgba(15, 23, 42, 0.24);
+}
+
+.paper-band {
+  background: #14212a;
+  color: #f5efe2;
+  padding: 22px 34px 17px;
+  position: relative;
+}
+.paper-band::after {
+  content: "";
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  height: 3px;
+  background: linear-gradient(90deg, #d99427, #f2b04c 55%, #d99427);
+}
+.paper-band--slim {
+  padding: 11px 34px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.paper-body { padding: 26px 34px 30px; }
+
+.paper-sec {
+  font-family: var(--font-disp);
+  font-size: 10.5px;
+  font-weight: 700;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: #16232a;
+  margin: 24px 0 12px;
+  padding-bottom: 7px;
+  position: relative;
+}
+.paper-sec::after {
+  content: "";
+  position: absolute;
+  left: 0;
+  bottom: 0;
+  width: 24px;
+  height: 3px;
+  border-radius: 1px;
+  background: #c68a28;
+}
+.paper-sec:first-child { margin-top: 0; }
+
+.paper-kv {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  padding: 5px 0;
+  font-size: 12.5px;
+  line-height: 1.45;
+}
+.paper-kv .k { color: #5c6b71; white-space: pre-wrap; }
+.paper-kv .dots {
+  flex: 1;
+  min-width: 24px;
+  border-bottom: 1.5px dotted #c7d2d6;
+  transform: translateY(-3px);
+}
+.paper-kv .v {
+  margin-left: auto;
+  text-align: right;
+  font-weight: 600;
+  color: #16232a;
+  font-family: var(--font-mono);
+  font-size: 12px;
+  max-width: 56%;
+}
+
+.paper-tbl { width: 100%; border-collapse: collapse; font-size: 12px; margin: 4px 0 8px; }
+.paper-tbl th {
+  background: #14212a;
+  color: #f5efe2;
+  font-family: var(--font-disp);
+  font-size: 9.5px;
+  font-weight: 600;
+  letter-spacing: 0.09em;
+  text-transform: uppercase;
+  padding: 8px 10px;
+  text-align: left;
+  white-space: nowrap;
+}
+.paper-tbl th.num, .paper-tbl td.num { text-align: right; }
+.paper-tbl td {
+  padding: 7.5px 10px;
+  border-bottom: 1px solid #edf1f2;
+  color: #22313a;
+  vertical-align: top;
+}
+.paper-tbl tbody tr:nth-child(even) td { background: #faf8f2; }
+.paper-tbl tbody tr:hover td { background: #f3efe3; }
+.paper-tbl td.num {
+  font-family: var(--font-mono);
+  font-size: 11.5px;
+  font-weight: 500;
+  white-space: nowrap;
+}
+.paper-tbl tfoot td {
+  border-top: 2px solid #14212a;
+  border-bottom: none;
+  font-weight: 700;
+  background: #f3efe4;
+  color: #16232a;
+}
+
+.paper-final {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  background: #14212a;
+  color: #f5efe2;
+  border-radius: 6px;
+  padding: 14px 18px;
+  margin: 16px 0;
+  box-shadow: 0 8px 24px -10px rgba(20, 33, 42, 0.55);
+}
+.paper-final .amt {
+  font-family: var(--font-mono);
+  font-size: 21px;
+  font-weight: 700;
+  color: #f2b04c;
+  letter-spacing: 0.01em;
+}
+
+.paper-trail {
+  background: #f7f4ec;
+  border: 1px solid #ece3cf;
+  border-left: 3px solid #d99427;
+  border-radius: 5px;
+  padding: 12px 16px;
+  font-family: var(--font-mono);
+  font-size: 11.5px;
+  line-height: 2;
+  color: #33434c;
+}
+.paper-trail div::before { content: "→  "; color: #a86f1c; }
+
+/* page caption above each paper sheet */
+.paper-page-label {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.16em;
+  color: var(--ink-faint);
+  margin: 0 0 7px 2px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.paper-page-label::after {
+  content: "";
+  flex: 1;
+  height: 1px;
+  background: var(--line-soft);
+}
+
 /* staggered reveal helper */
 .stagger > * { animation: fadeUp 0.45s cubic-bezier(0.22, 1, 0.36, 1) both; }
 .stagger > *:nth-child(1) { animation-delay: 0.02s; }

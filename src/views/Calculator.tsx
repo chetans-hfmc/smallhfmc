@@ -23,7 +23,7 @@ function Section({ num, title, hint, children }: { num: string; title: string; h
   return (
     <section className="card p-4 sm:p-5 anim-fade-up">
       <div className="flex items-baseline gap-3 mb-3.5">
-        <span className="mono text-[11px] font-semibold px-1.5 py-0.5 rounded" style={{ background: "rgba(242,176,76,0.12)", color: "var(--amber)" }}>{num}</span>
+        <span className="mono text-[11px] font-semibold px-1.5 py-0.5 rounded" style={{ background: "var(--amber-tint)", color: "var(--amber)" }}>{num}</span>
         <h2 className="font-disp font-semibold text-[15px] m-0">{title}</h2>
         {hint && <span className="text-[11.5px] text-[var(--ink-faint)] ml-auto hidden sm:inline">{hint}</span>}
       </div>
@@ -40,7 +40,7 @@ function ToggleChips({ options, value, onChange }: { options: string[]; value: s
           key={o}
           type="button"
           className="flex-1 px-2 py-1.5 text-[12px] font-disp font-semibold transition-all"
-          style={value === o ? { background: "rgba(242,176,76,0.16)", color: "var(--amber)" } : { color: "var(--ink-faint)", background: "transparent" }}
+          style={value === o ? { background: "var(--amber-tint)", color: "var(--amber)" } : { color: "var(--ink-faint)", background: "transparent" }}
           onClick={() => onChange(o)}
         >
           {o}
@@ -410,19 +410,19 @@ export default function Calculator() {
               <label className="label">LTV applied — default {defaultLtv}% for {input.applicantType}</label>
               <div className="flex flex-wrap items-center gap-1.5">
                 <button type="button" className="chip transition-all"
-                  style={input.ltvPctChoice == null ? { background: "rgba(242,176,76,0.14)", borderColor: "var(--amber)", color: "var(--amber)" } : { background: "var(--bg2)", borderColor: "var(--line)", color: "var(--ink-faint)" }}
+                  style={input.ltvPctChoice == null ? { background: "var(--amber-tint)", borderColor: "var(--amber)", color: "var(--amber)" } : { background: "var(--bg2)", borderColor: "var(--line)", color: "var(--ink-faint)" }}
                   onClick={() => up({ ltvPctChoice: null })}>
                   Default {defaultLtv}%
                 </button>
                 {LTV_CHOICES.map((v) => (
                   <button key={v} type="button" className="chip transition-all"
-                    style={input.ltvPctChoice === v ? { background: "rgba(242,176,76,0.14)", borderColor: "var(--amber)", color: "var(--amber)" } : { background: "var(--bg2)", borderColor: "var(--line)", color: "var(--ink-faint)" }}
+                    style={input.ltvPctChoice === v ? { background: "var(--amber-tint)", borderColor: "var(--amber)", color: "var(--amber)" } : { background: "var(--bg2)", borderColor: "var(--line)", color: "var(--ink-faint)" }}
                     onClick={() => up({ ltvPctChoice: v })}>
                     {v}%
                   </button>
                 ))}
                 <button type="button" className="chip transition-all"
-                  style={isCustomLtv ? { background: "rgba(242,176,76,0.14)", borderColor: "var(--amber)", color: "var(--amber)" } : { background: "var(--bg2)", borderColor: "var(--line)", color: "var(--ink-faint)" }}
+                  style={isCustomLtv ? { background: "var(--amber-tint)", borderColor: "var(--amber)", color: "var(--amber)" } : { background: "var(--bg2)", borderColor: "var(--line)", color: "var(--ink-faint)" }}
                   onClick={() => up({ ltvPctChoice: isCustomLtv ? input.ltvPctChoice : defaultLtv })}>
                   Custom
                 </button>
@@ -480,8 +480,8 @@ export default function Calculator() {
             <div
               className="mt-4 rounded-lg p-3.5 transition-colors"
               style={{
-                border: input.coBorrower ? "1px solid rgba(87,194,234,0.35)" : "1px dashed var(--line)",
-                background: input.coBorrower ? "rgba(87,194,234,0.045)" : "transparent",
+                border: input.coBorrower ? "1px solid color-mix(in srgb, var(--sky) 35%, transparent)" : "1px dashed var(--line)",
+                background: input.coBorrower ? "color-mix(in srgb, var(--sky) 6%, transparent)" : "transparent",
               }}
             >
               {!input.coBorrower ? (
@@ -635,7 +635,7 @@ export default function Calculator() {
                   {[1.5, 2, 3, 4].map((l) => (
                     <button key={l} type="button" className="chip transition-all"
                       style={input.loadFactor === l && input.stressOverride == null
-                        ? { background: "rgba(242,176,76,0.14)", borderColor: "var(--amber)", color: "var(--amber)" }
+                        ? { background: "var(--amber-tint)", borderColor: "var(--amber)", color: "var(--amber)" }
                         : { background: "var(--bg2)", borderColor: "var(--line)", color: "var(--ink-faint)" }}
                       onClick={() => up({ loadFactor: l, stressOverride: null })}>
                       +{l}%
@@ -665,7 +665,7 @@ export default function Calculator() {
 
         {/* ================= result rail ================= */}
         <div className="space-y-4 xl:sticky xl:top-[86px]">
-          <div className="card p-5 anim-fade-up" style={{ borderColor: "rgba(242,176,76,0.3)", background: "linear-gradient(180deg, rgba(242,176,76,0.06), rgba(18,36,44,0.9))" }}>
+          <div className="card p-5 anim-fade-up" style={{ borderColor: "var(--amber-line)", background: "linear-gradient(180deg, var(--amber-tint), var(--surface))", boxShadow: "var(--shadow)" }}>
             <div className="text-[10.5px] uppercase tracking-[0.14em] font-disp font-semibold" style={{ color: "var(--amber)" }}>Final MPBF</div>
             <div className="font-disp font-bold text-[38px] leading-[1.05] tracking-tight mt-1 tabular-nums">{fmtAED(mpbfDisplay)}</div>
             <div className="flex items-center gap-2 mt-1.5">
@@ -684,7 +684,7 @@ export default function Calculator() {
                   style={{ width: `${Math.min(r.currentDbr, 100)}%`, background: r.currentDbr > 50 ? "linear-gradient(90deg,#d95f4f,#f27363)" : "linear-gradient(90deg,#d99427,#f2b04c)" }} />
                 {r.currentDbr < 50 && (
                   <div className="absolute inset-y-0 transition-all duration-500"
-                    style={{ left: `${r.currentDbr}%`, width: `${50 - r.currentDbr}%`, background: "rgba(67,214,155,0.4)" }} />
+                    style={{ left: `${r.currentDbr}%`, width: `${50 - r.currentDbr}%`, background: "color-mix(in srgb, var(--mint) 38%, transparent)" }} />
                 )}
                 <div className="absolute inset-y-0 w-[2px]" style={{ left: "50%", background: "var(--ink)" }} />
               </div>
@@ -758,7 +758,7 @@ export default function Calculator() {
       {/* ================= quick tools ================= */}
       <div className="anim-fade-up">
         <div className="flex items-baseline gap-3 mb-2.5 px-1">
-          <span className="mono text-[11px] font-semibold px-1.5 py-0.5 rounded" style={{ background: "rgba(87,194,234,0.12)", color: "var(--sky)" }}>T</span>
+          <span className="mono text-[11px] font-semibold px-1.5 py-0.5 rounded" style={{ background: "color-mix(in srgb, var(--sky) 14%, transparent)", color: "var(--sky)" }}>T</span>
           <h2 className="font-disp font-semibold text-[15px] m-0">Quick tools</h2>
           <span className="text-[11.5px] text-[var(--ink-faint)]">inverse answers using the assessment above</span>
         </div>
@@ -772,7 +772,7 @@ export default function Calculator() {
           <div className="flex gap-1.5 ml-auto flex-wrap">
             {([["liab", "Liabilities"], ["rate", "Rate"], ["tenor", "Tenor"], ["income", "Income"]] as [WhifTab, string][]).map(([k, l]) => (
               <button key={k} className="chip transition-all"
-                style={whif === k ? { background: "rgba(242,176,76,0.14)", borderColor: "var(--amber)", color: "var(--amber)" } : { background: "var(--bg2)", borderColor: "var(--line)", color: "var(--ink-faint)" }}
+                style={whif === k ? { background: "var(--amber-tint)", borderColor: "var(--amber)", color: "var(--amber)" } : { background: "var(--bg2)", borderColor: "var(--line)", color: "var(--ink-faint)" }}
                 onClick={() => setWhif(k)}>
                 {l}
               </button>
@@ -990,9 +990,26 @@ function PreviewReport({
     };
   }, [onClose]);
 
-  const date = new Date().toLocaleDateString("en-GB", { day: "2-digit", month: "long", year: "numeric" });
+  const now = new Date();
+  const date = now.toLocaleDateString("en-GB", { day: "2-digit", month: "long", year: "numeric" });
+  const ref = `HFMC-MEA-${now.getFullYear()}${String(now.getMonth() + 1).padStart(2, "0")}${String(
+    now.getDate()
+  ).padStart(2, "0")}-${(inp.name || "client").replace(/[^a-z0-9]/gi, "").slice(0, 6).toUpperCase() || "CLIENT"}`;
   const numTh = (t: string) => (
     <th className="num">{t}</th>
+  );
+
+  const PageLabel = ({ n, title }: { n: number; title: string }) => (
+    <div className="paper-page-label">
+      <span>Page {n} of 3 · {title}</span>
+    </div>
+  );
+
+  const SlimBand = ({ n, title }: { n: number; title: string }) => (
+    <div className="paper-band paper-band--slim">
+      <span className="font-disp font-bold text-[12px] tracking-[0.03em]">HFMC — Mortgage Eligibility Assessment</span>
+      <span className="text-[10px] opacity-70 mono">Page {n} · {title} · {ref}</span>
+    </div>
   );
 
   return (
@@ -1022,11 +1039,19 @@ function PreviewReport({
           </div>
 
           {/* ---------- page 1 ---------- */}
-          <div className="mono text-[10px] uppercase tracking-[0.14em] text-[var(--ink-faint)] mb-1.5 px-1">Page 1 · Eligibility summary</div>
+          <PageLabel n={1} title="Eligibility summary" />
           <div className="paper mb-7 anim-fade-up">
             <div className="paper-band">
-              <div className="font-disp font-bold text-[17px] leading-tight">HFMC — Mortgage Eligibility Assessment</div>
-              <div className="text-[10.5px] opacity-75 mt-1">Preliminary assessment · not a bank approval or binding offer · {date}</div>
+              <div className="flex items-start justify-between gap-4">
+                <div>
+                  <div className="font-disp font-bold text-[17px] leading-tight">HFMC — Mortgage Eligibility Assessment</div>
+                  <div className="text-[10.5px] opacity-75 mt-1">Preliminary assessment · not a bank approval or binding offer</div>
+                </div>
+                <div className="text-right shrink-0">
+                  <div className="mono text-[10px] opacity-90">{ref}</div>
+                  <div className="text-[10px] opacity-70 mt-0.5">{date}</div>
+                </div>
+              </div>
             </div>
             <div className="paper-body">
               <div className="paper-sec">Applicant & Property</div>
@@ -1107,8 +1132,9 @@ function PreviewReport({
           </div>
 
           {/* ---------- page 2 ---------- */}
-          <div className="mono text-[10px] uppercase tracking-[0.14em] text-[var(--ink-faint)] mb-1.5 px-1">Page 2 · Supporting calculation</div>
+          <PageLabel n={2} title="Supporting calculation" />
           <div className="paper mb-7 anim-fade-up">
+            <SlimBand n={2} title="Supporting calculation" />
             <div className="paper-body">
               <div className="paper-sec">Income Breakdown</div>
               <table className="paper-tbl">
@@ -1240,8 +1266,9 @@ function PreviewReport({
           </div>
 
           {/* ---------- page 3 ---------- */}
-          <div className="mono text-[10px] uppercase tracking-[0.14em] text-[var(--ink-faint)] mb-1.5 px-1">Page 3 · What-if analysis</div>
+          <PageLabel n={3} title="What-if analysis" />
           <div className="paper mb-7 anim-fade-up">
+            <SlimBand n={3} title="What-if analysis" />
             <div className="paper-body">
               <p className="text-[11.5px] mt-0 mb-4" style={{ color: "#5b6367" }}>
                 Each scenario re-runs the full calculation with one input changed. Baseline final MPBF:{" "}
