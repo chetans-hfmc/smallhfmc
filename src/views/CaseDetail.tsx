@@ -331,7 +331,7 @@ export default function CaseDetail({ id }: { id: number }) {
         <div className="mt-5 overflow-x-auto pb-1">
           <div className="flex items-center min-w-max">
             {stages.map((s, i) => {
-              const reached = i < stageIdx || c.stage === "Closed";
+              const reached = i < stageIdx || c.stage === "Closure" || c.stage === "Closed";
               const current = s.label === c.stage;
               const lost = c.caseStatus === "Lost";
               return (

@@ -141,7 +141,7 @@ function loadDb(): DB {
     const raw = localStorage.getItem(DB_KEY);
     if (raw) {
       const parsed = JSON.parse(raw) as DB;
-      if (parsed && parsed.version === 7 && Array.isArray(parsed.designations)) return parsed;
+      if (parsed && parsed.version === 8 && Array.isArray(parsed.designations)) return parsed;
     }
   } catch {
     /* fall through to seed */
@@ -385,7 +385,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
                   caseStatus: state,
                   wonBank: state === "Closed" ? wonBank ?? c.wonBank ?? c.banks[0] ?? null : state === "Active" ? null : c.wonBank,
                   closedDate: state === "Active" ? null : todayISO(),
-                  stage: state === "Closed" ? "Closed" : c.stage,
+                  stage: state === "Closed" ? "Closure" : c.stage,
                   updatedAt: nowISO(),
                 }
               : c
@@ -589,7 +589,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
         banks,
         wonBank: null,
         loanAmount: k.finalEligibleLoan,
-        stage: "New Login",
+        stage: "WhatsApp Group Creation",
         caseStatus: "Active",
         closedDate: null,
         ownerId: me.id,

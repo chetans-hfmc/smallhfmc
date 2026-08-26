@@ -35,9 +35,30 @@ export function seedDb(): DB {
   ];
 
   const stages: StageItem[] = [
-    "New Login", "Documents & KYC", "Credit Appraisal", "Valuation", "Legal & Technical",
-    "Sanction", "Offer & Acceptance", "Disbursement", "Post-Disbursement", "Closed",
+    "WhatsApp Group Creation", "Document collection and QC", "Bank Submission", "Pre-Approval",
+    "Bank Query", "Pre-Approval QC", "Valuation", "Valuation Report", "FOL Conversion", "FOL",
+    "DDA/Signing", "Loan Booking", "Liability/Release", "Final Transfer", "Title Deed QC", "Closure",
   ].map((label, i) => ({ id: i + 1, label, active: true, sortOrder: i + 1 }));
+
+  /* legacy pipeline → new 16-stage pipeline (keeps seeded history coherent) */
+  const STAGE_MAP: Record<string, string> = {
+    "New Login": "WhatsApp Group Creation",
+    "Documents & KYC": "Document collection and QC",
+    "Credit Appraisal": "Pre-Approval",
+    "Valuation": "Valuation",
+    "Legal & Technical": "FOL Conversion",
+    "Sanction": "FOL",
+    "Offer & Acceptance": "DDA/Signing",
+    "Disbursement": "Loan Booking",
+    "Post-Disbursement": "Final Transfer",
+    "Closed": "Closure",
+  };
+  /* cases whose open task fits a different stage better than the straight map */
+  const STAGE_OVERRIDES: Record<string, string> = {
+    "Priya Menon": "Bank Query",
+    "Anna Kowalski": "Document collection and QC",
+  };
+  const mapStage = (s: string): string => STAGE_MAP[s] ?? s;
 
   const whyPending: MasterItem[] = [
     "Awaiting client documents", "Bank query raised", "Valuer visit pending", "Legal opinion pending",
@@ -68,17 +89,24 @@ export function seedDb(): DB {
   ];
 
   const slaRules: SlaRule[] = [
-    { id: 1, stage: "New Login", bank: null, maxDays: 3, active: true },
-    { id: 2, stage: "Documents & KYC", bank: null, maxDays: 6, active: true },
-    { id: 3, stage: "Credit Appraisal", bank: null, maxDays: 7, active: true },
-    { id: 4, stage: "Credit Appraisal", bank: "ADCB", maxDays: 5, active: true },
-    { id: 5, stage: "Valuation", bank: null, maxDays: 5, active: true },
-    { id: 6, stage: "Legal & Technical", bank: null, maxDays: 10, active: true },
-    { id: 7, stage: "Sanction", bank: null, maxDays: 5, active: true },
-    { id: 8, stage: "Sanction", bank: "FAB", maxDays: 7, active: true },
-    { id: 9, stage: "Offer & Acceptance", bank: null, maxDays: 5, active: true },
-    { id: 10, stage: "Disbursement", bank: null, maxDays: 4, active: true },
-    { id: 11, stage: "Post-Disbursement", bank: null, maxDays: 12, active: true },
+    { id: 1, stage: "WhatsApp Group Creation", bank: null, maxDays: 1, active: true },
+    { id: 2, stage: "Document collection and QC", bank: null, maxDays: 7, active: true },
+    { id: 3, stage: "Bank Submission", bank: null, maxDays: 2, active: true },
+    { id: 4, stage: "Pre-Approval", bank: null, maxDays: 7, active: true },
+    { id: 5, stage: "Pre-Approval", bank: "EIB", maxDays: 10, active: true },
+    { id: 6, stage: "Bank Query", bank: null, maxDays: 10, active: true },
+    { id: 7, stage: "Pre-Approval QC", bank: null, maxDays: 2, active: true },
+    { id: 8, stage: "Valuation", bank: null, maxDays: 5, active: true },
+    { id: 9, stage: "Valuation Report", bank: null, maxDays: 3, active: true },
+    { id: 10, stage: "FOL Conversion", bank: null, maxDays: 5, active: true },
+    { id: 11, stage: "FOL", bank: null, maxDays: 5, active: true },
+    { id: 12, stage: "FOL", bank: "FAB", maxDays: 7, active: true },
+    { id: 13, stage: "DDA/Signing", bank: null, maxDays: 5, active: true },
+    { id: 14, stage: "Loan Booking", bank: null, maxDays: 3, active: true },
+    { id: 15, stage: "Liability/Release", bank: null, maxDays: 5, active: true },
+    { id: 16, stage: "Final Transfer", bank: null, maxDays: 5, active: true },
+    { id: 17, stage: "Final Transfer", bank: "DIB", maxDays: 7, active: true },
+    { id: 18, stage: "Title Deed QC", bank: null, maxDays: 3, active: true },
   ];
 
   const cases: LoanCase[] = [];
@@ -119,7 +147,7 @@ export function seedDb(): DB {
     { customer: "Priya Menon", banks: ["HSBC", "SCB"], amountK: 3100, stage: "Sanction", owner: 7, age: 26, source: "Referral", partner: { kind: "Referral", name: "Hessa Al Qasimi", share: 15 },
       open: { desc: "Answer bank query on spouse income declaration", owner: 7, waiting: "Bank", why: "Bank query raised", dueIn: -1, openedAgo: 4, by: 3 },
       done: [{ desc: "Submit sanction file to credit team", owner: 7, waiting: "Internal", why: "Internal review", doneAgo: 8 }],
-      trail: [[7, 26, "Case created"], [7, 9, "Stage moved", "Legal & Technical", "Sanction"]] },
+      trail: [[7, 26, "Case created"], [7, 9, "Stage moved", "FOL Conversion", "FOL"], [7, 5, "Stage moved", "FOL", "Bank Query"]] },
     { customer: "John Okafor", banks: [], amountK: 1200, stage: "New Login", owner: 9, age: 2, source: "Direct",
       open: { desc: "Pre-login eligibility check — bank not yet decided", owner: 9, waiting: "Internal", why: "Internal review", dueIn: 6, openedAgo: 2, by: 8 },
       trail: [[9, 2, "Case created"]] },
@@ -157,7 +185,7 @@ export function seedDb(): DB {
       trail: [[7, 41, "Case created"], [7, 6, "Stage moved", "Disbursement", "Post-Disbursement"]] },
     { customer: "Anna Kowalski", banks: ["HSBC"], amountK: 1900, stage: "Credit Appraisal", owner: 8, age: 16, source: "Website",
       open: { desc: "Third call — income proof still pending", owner: 8, waiting: "Client", why: "No response from client", dueIn: -2, openedAgo: 5 },
-      trail: [[8, 16, "Case created"]] },
+      trail: [[8, 16, "Case created"], [8, 10, "Stage moved", "WhatsApp Group Creation", "Document collection and QC"]] },
     { customer: "Omar Al Shamsi", banks: ["CBD"], amountK: 1100, stage: "Documents & KYC", owner: 9, age: 5, source: "Direct",
       done: [{ desc: "Verify employment with HR desk", owner: 9, waiting: "Client", why: "Awaiting client documents", doneAgo: 2, remarks: "HR letter issued." }],
       trail: [[9, 5, "Case created"], [9, 2, "Task completed", "Verify employment with HR desk"]] },
@@ -225,7 +253,7 @@ export function seedDb(): DB {
       banks: s.banks,
       wonBank: s.state === "Closed" ? s.won ?? s.banks[0] ?? null : null,
       loanAmount: s.amountK * 1000,
-      stage: s.stage,
+      stage: STAGE_OVERRIDES[s.customer] ?? mapStage(s.stage),
       caseStatus: s.state ?? "Active",
       closedDate: s.state && s.state !== "Active" ? daysAgoISO(s.closedAgo ?? 1) : null,
       ownerId: s.owner,
@@ -256,24 +284,29 @@ export function seedDb(): DB {
     }
 
     aid += 1;
-    activities.push({ id: aid, caseId: id, userId: s.owner, at: createdAt, action: "Case created", newValue: s.stage });
+    activities.push({ id: aid, caseId: id, userId: s.owner, at: createdAt, action: "Case created", newValue: STAGE_OVERRIDES[s.customer] ?? mapStage(s.stage) });
     if (s.partner) {
       aid += 1;
       activities.push({ id: aid, caseId: id, userId: s.owner, at: createdAt, action: "Source logged", newValue: `${s.source} · ${s.partner.name} @ ${s.partner.share}%` });
     }
     for (const [u, ago, action, ov, nv] of s.trail ?? []) {
       aid += 1;
-      activities.push({ id: aid, caseId: id, userId: u, at: ts(ago, (id + ago) % 5), action, oldValue: ov, newValue: nv });
+      const mapIfStage = (v: string | undefined) => (v === undefined ? v : mapStage(v));
+      const mv = action === "Stage moved" || action === "Case marked lost" || action === "Case booked"
+        ? [mapIfStage(ov), mapIfStage(nv)]
+        : [ov, nv];
+      activities.push({ id: aid, caseId: id, userId: u, at: ts(ago, (id + ago) % 5), action, oldValue: mv[0], newValue: mv[1] });
     }
   }
 
   const waMap: Record<string, { wa: string; group?: string }> = {
-    "Suresh Patil": { wa: "+971 50 234 8811", group: "https://chat.whatsapp.com/HfmcSureshPatil01" },
-    "Meera Krishnan": { wa: "+971 55 810 2245" },
-    "Kavita Deshpande": { wa: "+971 52 667 9034", group: "https://chat.whatsapp.com/HfmcKavitaFile04" },
-    "Rajiv Malhotra": { wa: "+971 50 445 1278" },
-    "Deepak Nair": { wa: "+971 56 300 7719" },
-    "Vinod Kamble": { wa: "+971 54 902 3361" },
+    "Mohammed Al Mansoori": { wa: "+971 50 234 8811", group: "https://chat.whatsapp.com/HfmcAlMansoori01" },
+    "Sarah Thomson": { wa: "+971 55 810 2245", group: "https://chat.whatsapp.com/HfmcThomson02" },
+    "Priya Menon": { wa: "+971 52 667 9034" },
+    "Fatima Noor": { wa: "+971 54 402 7789", group: "https://chat.whatsapp.com/HfmcFatimaNoor04" },
+    "David Chen": { wa: "+971 56 300 7719" },
+    "Hamad Al Suwaidi": { wa: "+971 50 918 3345" },
+    "Sunita Pawar": { wa: "+971 54 902 3361" },
   };
   for (const c of cases) {
     const p = waMap[c.customer];
@@ -319,7 +352,7 @@ export function seedDb(): DB {
   ];
 
   return {
-    version: 7, users, designations, cases, tasks, activities, stages, whyPending, waitingFor,
+    version: 8, users, designations, cases, tasks, activities, stages, whyPending, waitingFor,
     banks, partners, slaRules, instructions, affordabilityChecks,
   };
 }

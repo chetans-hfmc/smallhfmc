@@ -170,7 +170,7 @@ export default function Reports() {
     .sort((a, b) => b.volume - a.volume);
 
   /* 13 — bank × stage ageing */
-  const ageStages = [...db.stages].filter((s) => s.label !== "Closed").sort((a, b) => a.sortOrder - b.sortOrder);
+  const ageStages = [...db.stages].filter((s) => s.label !== "Closure" && s.label !== "Closed").sort((a, b) => a.sortOrder - b.sortOrder);
   const bankAge = db.banks
     .map((b) => ({ b, cells: ageStages.map((st) => { const cs = openCases.filter((c) => c.banks.includes(b.name) && c.stage === st.label); return cs.length ? Math.round(cs.reduce((s, c) => s + ageDays(c.createdAt), 0) / cs.length) : null; }) }))
     .filter((r) => r.cells.some((x) => x != null));
