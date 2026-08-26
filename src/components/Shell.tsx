@@ -2,8 +2,8 @@ import { useEffect, useState } from "react";
 import type { ReactNode } from "react";
 import type { CasePartner, CaseSource, Role, Route } from "../lib/types";
 import { PARTNER_SHARES, SOURCES } from "../lib/types";
-import { computeEscalations, useStore } from "../lib/store";
-import { fmtMoney, inDaysISO } from "../lib/format";
+import { bulletinVisible, computeEscalations, useStore } from "../lib/store";
+import { fmtMoney, inDaysISO, todayISO } from "../lib/format";
 import { Avatar, Chip, Modal } from "./ui";
 import {
   IBank, IBriefcase, ICalc, IChart, IFlag, IGrid, ILogout, IPlus, IShield, ITasks, LogoMark,
@@ -32,7 +32,7 @@ function NewCaseModal({ open, onClose }: { open: boolean; onClose: () => void })
   const [waGroup, setWaGroup] = useState("");
   const [banks, setBanks] = useState<string[]>([]);
   const [amount, setAmount] = useState("1500000");
-  const [stage, setStage] = useState(stages[0]?.label ?? "New Login");
+  const [stage, setStage] = useState(stages[0]?.label ?? "WhatsApp Group Creation");
   const [ownerId, setOwnerId] = useState(session?.id ?? 0);
   const [source, setSource] = useState<CaseSource>("Direct");
   const [partnerName, setPartnerName] = useState("");
@@ -264,8 +264,13 @@ export default function Shell({ children }: { children: ReactNode }) {
   const pipeline = visibleCases().filter((c) => c.caseStatus === "Active").reduce((s, c) => s + c.loanAmount, 0);
   const isAdmin = session?.role === "Head of Company" || session?.role === "Mortgage Head";
 
-  const navItems: { label: string; route: Route; icon: (p: { size?: number; className?: string }) => ReactNode }[] = [
+  const myOpenDirectives = session
+    ? db.bulletin.filter((b) => b.date === todayISO() && b.status === "Open" && bulletinVisible(b, session, db) && b.targets.includes(session.id)).length
+    : 0;
+
+  const navItems: { label: string; route: Route; icon: (p: { size?: number; className?: string }) => ReactNode; badge?: number }[] = [
     { label: "Dashboard", route: { name: "dashboard" as const }, icon: IGrid },
+    { label: "Morning Bulletin", route: { name: "bulletin" as const }, icon: IFlag, badge: myOpenDirectives },
     { label: "Calculator", route: { name: "calculator" as const }, icon: ICalc },
     { label: "Task Queue", route: { name: "tasks" as const }, icon: ITasks },
     { label: "Reports", route: { name: "reports" as const }, icon: IChart },
@@ -276,6 +281,7 @@ export default function Shell({ children }: { children: ReactNode }) {
     route.name === "dashboard" ? "Dashboard" :
     route.name === "case" ? "Case 360" :
     route.name === "tasks" ? "Task Queue" :
+    route.name === "bulletin" ? "Morning Bulletin" :
     route.name === "calculator" ? "Calculator" :
     route.name === "reports" ? "Reports" : "Admin";
 
@@ -300,6 +306,11 @@ export default function Shell({ children }: { children: ReactNode }) {
               <button key={n.label} className={`nav-item w-full text-left ${active ? "active" : ""}`} onClick={() => nav(n.route)}>
                 <n.icon size={17} />
                 <span>{n.label}</span>
+                {!!n.badge && n.badge > 0 && (
+                  <span className="ml-auto mono text-[10px] px-1.5 py-0.5 rounded-full" style={{ background: "rgba(242,176,76,0.18)", color: "var(--amber)", border: "1px solid rgba(242,176,76,0.4)" }}>
+                    {n.badge}
+                  </span>
+                )}
                 {n.label === "Task Queue" && openInstr > 0 && canInstruct() && (
                   <span className="ml-auto mono text-[10px] px-1.5 py-0.5 rounded" style={{ background: "rgba(87,194,234,0.15)", color: "var(--sky)" }}>
                     {openInstr}

@@ -1,7 +1,7 @@
 import { createContext, useCallback, useContext, useEffect, useRef, useState } from "react";
 import type { ReactNode } from "react";
 import type {
-  Activity, AffordabilityCheck, BankItem, CasePartner, CaseSource, CaseState, DB, Designation, LoanCase, MasterItem,
+  Activity, AffordabilityCheck, BankItem, BulletinItem, CasePartner, CaseSource, CaseState, DB, Designation, LoanCase, MasterItem,
   PartnerItem, PartnerKind, Route, SlaRule, StageItem, Task, User,
 } from "./types";
 import { seedDb } from "./data";
@@ -57,6 +57,24 @@ export function flagsFor(designations: Designation[], role: string): RoleFlags {
   return d ? { scope: d.scope, issueTasks: d.issueTasks, admin: d.admin, super: d.super } : DEFAULT_FLAGS;
 }
 
+/* who can see / act on a bulletin directive */
+export function bulletinVisible(b: BulletinItem, me: User, db: DB): boolean {
+  const f = flagsFor(db.designations, me.role);
+  if (f.scope === "all") return true;
+  if (b.issuedBy === me.id || b.targets.includes(me.id)) return true;
+  if (f.scope === "team") {
+    const issuer = db.users.find((u) => u.id === b.issuedBy);
+    if (issuer?.team === me.team) return true;
+    return b.targets.some((t) => db.users.find((u) => u.id === t)?.team === me.team);
+  }
+  return false;
+}
+
+export function bulletinCanAct(b: BulletinItem, me: User, db: DB): boolean {
+  const f = flagsFor(db.designations, me.role);
+  return f.scope === "all" || b.issuedBy === me.id || b.targets.includes(me.id);
+}
+
 interface StoreShape {
   db: DB;
   session: User | null;
@@ -76,6 +94,10 @@ interface StoreShape {
   completeTask: (id: number, remarks: string) => void;
   addInstruction: (caseId: number, input: { instruction: string; assignedTo: number; dueDate: string }) => void;
   completeInstruction: (id: number) => void;
+  replyToInstruction: (id: number, text: string) => void;
+  issueBulletin: (input: { date: string; task: string; caseId: number | null; targets: number[] }) => void;
+  completeBulletin: (id: number) => void;
+  replyToBulletin: (id: number, text: string) => void;
   canInstruct: () => boolean;
   canAdmin: () => boolean;
   saveMortgageCheck: (name: string, whatsapp: string, payload: string, summary: { income: number; emi: number; final: number; rate: number; tenorMonths: number; ltv: number; eligible: boolean }) => number;
@@ -116,6 +138,7 @@ function parseHash(): Route {
   const [a, b] = h.split("/");
   if (a === "case" && b && !Number.isNaN(parseInt(b, 10))) return { name: "case", id: parseInt(b, 10) };
   if (a === "tasks") return { name: "tasks" };
+  if (a === "bulletin") return { name: "bulletin" };
   if (a === "calculator") return { name: "calculator" };
   if (a === "reports") return { name: "reports" };
   if (a === "admin") return { name: "admin" };
@@ -141,7 +164,7 @@ function loadDb(): DB {
     const raw = localStorage.getItem(DB_KEY);
     if (raw) {
       const parsed = JSON.parse(raw) as DB;
-      if (parsed && parsed.version === 7 && Array.isArray(parsed.designations)) return parsed;
+      if (parsed && parsed.version === 9 && Array.isArray(parsed.designations) && Array.isArray(parsed.bulletin)) return parsed;
     }
   } catch {
     /* fall through to seed */
@@ -385,7 +408,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
                   caseStatus: state,
                   wonBank: state === "Closed" ? wonBank ?? c.wonBank ?? c.banks[0] ?? null : state === "Active" ? null : c.wonBank,
                   closedDate: state === "Active" ? null : todayISO(),
-                  stage: state === "Closed" ? "Closed" : c.stage,
+                  stage: state === "Closed" ? "Closure" : c.stage,
                   updatedAt: nowISO(),
                 }
               : c
@@ -507,6 +530,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
           status: "Open" as const,
           createdAt: nowISO(),
           completedAt: null,
+          replies: [],
         };
         return {
           ...prev,
@@ -530,6 +554,92 @@ export function StoreProvider({ children }: { children: ReactNode }) {
           activities: logAct(prev.activities, before.caseId, me?.id ?? 0, "Instruction completed", before.instruction),
         };
       });
+    },
+    [session]
+  );
+
+  const nextReplyId = (prev: DB): number =>
+    Math.max(
+      0,
+      ...prev.instructions.flatMap((i) => i.replies.map((r) => r.id)),
+      ...prev.bulletin.flatMap((b) => b.replies.map((r) => r.id))
+    ) + 1;
+
+  const replyToInstruction = useCallback(
+    (id: number, text: string) => {
+      const me = session;
+      const clean = text.trim();
+      if (!clean || !me) return;
+      setDb((prev) => ({
+        ...prev,
+        instructions: prev.instructions.map((i) =>
+          i.id === id ? { ...i, replies: [...i.replies, { id: nextReplyId(prev), userId: me.id, text: clean, at: nowISO() }] } : i
+        ),
+      }));
+    },
+    [session]
+  );
+
+  /* ---------------- morning bulletin ---------------- */
+
+  const issueBulletin = useCallback(
+    (input: { date: string; task: string; caseId: number | null; targets: number[] }) => {
+      const me = session;
+      setDb((prev) => {
+        const b: BulletinItem = {
+          id: nextId(prev.bulletin),
+          date: input.date,
+          issuedBy: me?.id ?? 0,
+          task: input.task.trim(),
+          caseId: input.caseId,
+          targets: input.targets,
+          status: "Open",
+          completedAt: null,
+          completedBy: null,
+          createdAt: nowISO(),
+          replies: [],
+        };
+        let acts = prev.activities;
+        if (input.caseId)
+          acts = logAct(acts, input.caseId, me?.id ?? 0, "Directive issued", undefined, b.task);
+        return { ...prev, bulletin: [...prev.bulletin, b], activities: acts };
+      });
+    },
+    [session]
+  );
+
+  const completeBulletin = useCallback(
+    (id: number) => {
+      const me = session;
+      setDb((prev) => {
+        const before = prev.bulletin.find((b) => b.id === id);
+        if (!before) return prev;
+        let acts = prev.activities;
+        if (before.caseId)
+          acts = logAct(acts, before.caseId, me?.id ?? 0, "Directive completed", before.task);
+        return {
+          ...prev,
+          bulletin: prev.bulletin.map((b) =>
+            b.id === id ? { ...b, status: "Done" as const, completedAt: nowISO(), completedBy: me?.id ?? null } : b
+          ),
+          activities: acts,
+        };
+      });
+    },
+    [session]
+  );
+
+  const replyToBulletin = useCallback(
+    (id: number, text: string) => {
+      const me = session;
+      const clean = text.trim();
+      if (!clean || !me) return;
+      setDb((prev) => ({
+        ...prev,
+        bulletin: prev.bulletin.map((b) =>
+          b.id === id ? { ...b, replies: [...b.replies, { id: nextReplyId(prev), userId: me.id, text: clean, at: nowISO() }] } : b
+        ),
+      }));
     },
     [session]
   );
@@ -589,7 +699,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
         banks,
         wonBank: null,
         loanAmount: k.finalEligibleLoan,
-        stage: "New Login",
+        stage: "WhatsApp Group Creation",
         caseStatus: "Active",
         closedDate: null,
         ownerId: me.id,
@@ -911,7 +1021,9 @@ export function StoreProvider({ children }: { children: ReactNode }) {
   const value: StoreShape = {
     db, session, route, toasts, nav, login, logout, toast, dismissToast,
     createCase, updateCase, deleteCase, setCaseState, createTask, updateTask, completeTask,
-    addInstruction, completeInstruction, canInstruct, canAdmin,
+    addInstruction, completeInstruction, replyToInstruction,
+    issueBulletin, completeBulletin, replyToBulletin,
+    canInstruct, canAdmin,
     saveMortgageCheck, addDesignation, updateDesignation, deleteDesignation,
     runCheck, createCaseFromCheck, linkCheckToCase,
     saveUser, deleteUser, addMaster, toggleMaster, deleteMaster, moveStage,

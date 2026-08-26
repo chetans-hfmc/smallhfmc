@@ -3,8 +3,8 @@ import type { ReactNode } from "react";
 import { useStore } from "../lib/store";
 import type { AffordabilityCheck } from "../lib/types";
 import {
-  FREQUENCIES, LIAB_METHODS, LIAB_TYPES, SALARIED_SOURCES, SE_SOURCES,
-  cloneInput, computeMortgage, defaultInput, emiFor, fmtAED, fmtPct, incomeMonthly, liabilityEmi,
+  CO_SOURCES, FREQUENCIES, LIAB_METHODS, LIAB_TYPES, LTV_CHOICES, SALARIED_SOURCES, SE_SOURCES,
+  cloneInput, computeMortgage, defaultInput, defaultLtvPct, emiFor, fmtAED, fmtPct, incomeMonthly, liabilityEmi,
   newIncomeRow, newLiabRow, scenarioCardNewLimit, scenarioCardsPct, scenarioIncomePct,
   scenarioIncomeRemove, scenarioRate, scenarioRemoveCards, scenarioRemoveLiab, scenarioTenor, tenorLabel,
 } from "../lib/mortgage";
@@ -13,6 +13,7 @@ import { generateMortgagePdf } from "../lib/pdf";
 import type { PdfScenarioTable } from "../lib/pdf";
 import { relTime } from "../lib/format";
 import { Avatar, Chip } from "../components/ui";
+import { ConfirmModal } from "../components/bits";
 import { useCountUp } from "../components/charts";
 import { IArrowR, ICalc, IDownload, IEye, IPlus, ITrash, IX } from "../components/icons";
 
@@ -71,7 +72,8 @@ export default function Calculator() {
   const { db, session, nav, toast, userById, saveMortgageCheck, createCaseFromCheck, linkCheckToCase } = useStore();
   const [input, setInput] = useState<MortgageInput>(defaultInput);
   const [savedId, setSavedId] = useState<number | null>(null);
-  const [preview, setPreview] = useState<{ input: MortgageInput; res: MortgageResult; tables: PdfScenarioTable[]; by: string } | null>(null);
+  const [confirmCase, setConfirmCase] = useState(false);
+  const [preview, setPreview] = useState<{ input: MortgageInput; res: MortgageResult; tables: PdfScenarioTable[]; by: string; obs: string } | null>(null);
   const [whif, setWhif] = useState<WhifTab>("liab");
   const [cardId, setCardId] = useState("");
   const [cardLimit, setCardLimit] = useState("");
@@ -97,6 +99,18 @@ export default function Calculator() {
     setInput((p) => ({ ...p, incomes: p.incomes.map((x) => (x.id === id ? { ...x, ...patch } : x)) }));
   const patchLiab = (id: string, patch: Partial<LiabRow>) =>
     setInput((p) => ({ ...p, liabilities: p.liabilities.map((x) => (x.id === id ? { ...x, ...patch } : x)) }));
+
+  /* ---- co-borrower (DBR only, never written to a case) ---- */
+  const patchCoIncome = (id: string, patch: Partial<IncomeRow>) =>
+    setInput((p) => ({
+      ...p,
+      coBorrower: p.coBorrower
+        ? { ...p.coBorrower, incomes: p.coBorrower.incomes.map((x) => (x.id === id ? { ...x, ...patch } : x)) }
+        : p.coBorrower,
+    }));
+
+  const defaultLtv = defaultLtvPct(input.applicantType);
+  const isCustomLtv = input.ltvPctChoice != null && !LTV_CHOICES.includes(input.ltvPctChoice);
 
   /* ---------------- scenarios ---------------- */
 
@@ -178,10 +192,10 @@ export default function Calculator() {
 
   const onSave = () => {
     saveCheck();
-    toast("success", "Check saved to the audit trail.");
+    toast("success", "Check saved to the audit trail — no case was created.");
   };
 
-  const onOpenCase = () => {
+  const doCreateCase = () => {
     const payload = JSON.stringify({ v: 1, input });
     const id = saveMortgageCheck(input.name || "Unnamed applicant", input.whatsapp, payload, summaryFor());
     const check: AffordabilityCheck = {
@@ -201,6 +215,53 @@ export default function Calculator() {
       toast("success", `${c.caseNumber} opened for ${c.customer} at ${fmtAED(c.loanAmount)}.`);
       nav({ name: "case", id: c.id });
     }
+  };
+
+  const onOpenCase = () => setConfirmCase(true);
+
+  /* scenario builders that work for any saved input (audit-trail reports) */
+  const liabScenariosOf = (src: MortgageInput) => {
+    const rows: { label: string; input: MortgageInput }[] = [];
+    const cards = src.liabilities.filter((x) => x.type === "Credit Card");
+    if (cards.length) {
+      rows.push({ label: "Credit cards −25%", input: scenarioCardsPct(src, 0.75) });
+      rows.push({ label: "Credit cards −50%", input: scenarioCardsPct(src, 0.5) });
+      rows.push({ label: "Credit cards removed", input: scenarioRemoveCards(src) });
+    }
+    for (const l of src.liabilities.filter((x) => x.type !== "Credit Card"))
+      rows.push({ label: `Remove ${l.name || l.type}`, input: scenarioRemoveLiab(src, l.id) });
+    return rows;
+  };
+  const incomeScenariosOf = (src: MortgageInput) =>
+    src.incomes.map((row) => ({ label: `Remove ${row.source}`, input: scenarioIncomeRemove(src, row.id) }));
+
+  const buildScenarioTablesFor = (src: MortgageInput, base: MortgageResult): PdfScenarioTable[] => {
+    const run = (list: { label: string; input: MortgageInput }[]) =>
+      list.map((s) => {
+        const sr = computeMortgage(s.input);
+        return { label: s.label, dbr: sr.currentDbr, residual: sr.residualDbr, mpbf: sr.finalMpbf, extra: sr.eligibleIncome, rate: sr.assessmentRate, tenor: sr.maxTenorMonths };
+      });
+    const liabRows = run(liabScenariosOf(src));
+    const rateRows = run([1, 2, 3].map((n) => ({ label: `Stress +${n}%`, input: scenarioRate(src, src.actualRate + src.loadFactor + n) })));
+    const tenorRows = run([15, 20, 25].map((yy) => ({ label: `${yy} years`, input: scenarioTenor(src, yy * 12) })));
+    const incomeRows = run(incomeScenariosOf(src));
+    const dlt = (v: number) => (v >= 0 ? "+" : "−") + fmtAED(Math.abs(v));
+    const mk = (title: string, head: string[], rows: { label: string }[], cells: (row: (typeof liabRows)[number], i: number) => (string | number)[]) => ({
+      title, head,
+      body: rows.map((row, i) => [row.label, ...cells(row as (typeof liabRows)[number], i)]),
+    });
+    return [
+      mk("Liability scenarios", ["Scenario", "Current DBR", "Residual DBR", "MPBF", "Change"], [{ label: "Current (baseline)" }, ...liabRows], (row, i) =>
+        i === 0
+          ? [fmtPct(base.currentDbr), fmtPct(base.residualDbr), fmtAED(base.finalMpbf), "—"]
+          : [fmtPct(row.dbr), fmtPct(row.residual), fmtAED(row.mpbf), dlt(row.mpbf - base.finalMpbf)]),
+      mk("Rate scenarios", ["Scenario", "Assessment rate", "MPBF", "Change"], [{ label: `Current (${base.assessmentRate.toFixed(2)}%)` }, ...rateRows], (row, i) =>
+        i === 0 ? [fmtPct(base.assessmentRate), fmtAED(base.finalMpbf), "—"] : [fmtPct(row.rate), fmtAED(row.mpbf), dlt(row.mpbf - base.finalMpbf)]),
+      mk("Tenor scenarios", ["Scenario", "Tenor", "MPBF", "Change"], [{ label: `Current max (${tenorLabel(base.maxTenorMonths)})` }, ...tenorRows], (row, i) =>
+        i === 0 ? [tenorLabel(base.maxTenorMonths), fmtAED(base.finalMpbf), "—"] : [tenorLabel(row.tenor), fmtAED(row.mpbf), dlt(row.mpbf - base.finalMpbf)]),
+      mk("Income scenarios", ["Scenario", "Eligible income", "MPBF", "Change"], [{ label: "Current (baseline)" }, ...incomeRows], (row, i) =>
+        i === 0 ? [fmtAED(base.eligibleIncome), fmtAED(base.finalMpbf), "—"] : [fmtAED(row.extra), fmtAED(row.mpbf), dlt(row.mpbf - base.finalMpbf)]),
+    ];
   };
 
   const buildScenarioTables = (): PdfScenarioTable[] => {
@@ -227,13 +288,32 @@ export default function Calculator() {
     ];
   };
 
+  const buildReport = () => {
+    const tables = buildScenarioTables();
+    const liab = runScenarios(liabScenarios);
+    const income = runScenarios(incomeScenarios);
+    const candidates = [
+      ...liab.map((s) => ({ label: s.label, d: s.mpbf - r.finalMpbf, dbr: s.dbr })),
+      ...income.map((s) => ({ label: s.label, d: s.mpbf - r.finalMpbf, dbr: s.dbr })),
+    ]
+      .filter((c) => c.d > 5000)
+      .sort((a, b) => b.d - a.d);
+    const obs =
+      candidates.length === 0
+        ? `No liability or income scenario meaningfully improves the baseline ${fmtAED(r.finalMpbf)} — the binding constraint is ${r.limitedBy.toLowerCase()}. Movement must come from income, liabilities or the property itself.`
+        : `Strongest lever: ${candidates[0].label} — DBR moves ${fmtPct(r.currentDbr)} → ${fmtPct(candidates[0].dbr)}, unlocking ${fmtAED(candidates[0].d)} of additional MPBF (${fmtAED(r.finalMpbf)} → ${fmtAED(r.finalMpbf + candidates[0].d)}).`;
+    return { tables, obs };
+  };
+
   const onPdf = () => {
-    generateMortgagePdf(input, r, buildScenarioTables(), session?.name ?? "HFMC");
+    const { tables, obs } = buildReport();
+    generateMortgagePdf(input, r, tables, session?.name ?? "HFMC", obs);
     toast("success", "Bank-facing PDF downloaded.");
   };
 
   const onView = () => {
-    setPreview({ input, res: r, tables: buildScenarioTables(), by: session?.name ?? "HFMC" });
+    const { tables, obs } = buildReport();
+    setPreview({ input, res: r, tables, by: session?.name ?? "HFMC", obs });
   };
 
   /* ---------------- render ---------------- */
@@ -325,9 +405,41 @@ export default function Calculator() {
                 <NumIn value={input.requested} onChange={(n) => up({ requested: n })} step={50000} />
               </div>
             </div>
+
+            <div className="mt-3">
+              <label className="label">LTV applied — default {defaultLtv}% for {input.applicantType}</label>
+              <div className="flex flex-wrap items-center gap-1.5">
+                <button type="button" className="chip transition-all"
+                  style={input.ltvPctChoice == null ? { background: "rgba(242,176,76,0.14)", borderColor: "var(--amber)", color: "var(--amber)" } : { background: "var(--bg2)", borderColor: "var(--line)", color: "var(--ink-faint)" }}
+                  onClick={() => up({ ltvPctChoice: null })}>
+                  Default {defaultLtv}%
+                </button>
+                {LTV_CHOICES.map((v) => (
+                  <button key={v} type="button" className="chip transition-all"
+                    style={input.ltvPctChoice === v ? { background: "rgba(242,176,76,0.14)", borderColor: "var(--amber)", color: "var(--amber)" } : { background: "var(--bg2)", borderColor: "var(--line)", color: "var(--ink-faint)" }}
+                    onClick={() => up({ ltvPctChoice: v })}>
+                    {v}%
+                  </button>
+                ))}
+                <button type="button" className="chip transition-all"
+                  style={isCustomLtv ? { background: "rgba(242,176,76,0.14)", borderColor: "var(--amber)", color: "var(--amber)" } : { background: "var(--bg2)", borderColor: "var(--line)", color: "var(--ink-faint)" }}
+                  onClick={() => up({ ltvPctChoice: isCustomLtv ? input.ltvPctChoice : defaultLtv })}>
+                  Custom
+                </button>
+                {isCustomLtv && (
+                  <span className="flex items-center gap-1.5 anim-fade-in">
+                    <input className="input mono" style={{ width: 84, padding: "4px 8px" }} type="number" min={10} max={95} step={1}
+                      value={input.ltvPctChoice ?? ""}
+                      onChange={(e) => up({ ltvPctChoice: Math.min(95, Math.max(10, Number(e.target.value) || 0)) })} />
+                    <span className="text-[12px] text-[var(--ink-faint)]">%</span>
+                  </span>
+                )}
+              </div>
+            </div>
+
             <p className="text-[12px] text-[var(--ink-dim)] mt-3 mb-0 rounded-lg px-3 py-2" style={{ background: "rgba(232,241,239,0.035)" }}>
               Calculation basis: <strong className="mono">{fmtAED(r.calcBasis)}</strong>
-              <span className="text-[var(--ink-faint)]"> — {r.basisLabel}. LTV band {r.ltvPct}% for {input.applicantType}{r.calcBasis > 5000000 ? " (above AED 5M)" : ""}.</span>
+              <span className="text-[var(--ink-faint)]"> — {r.basisLabel}. LTV {r.ltvPct}% ({input.ltvPctChoice != null ? "selected" : "default"}) for {input.applicantType}.</span>
             </p>
           </Section>
 
@@ -356,11 +468,110 @@ export default function Calculator() {
                 <IPlus size={13} /> Add income
               </button>
               <div className="text-[12.5px]">
-                Eligible monthly income <strong className="mono text-[15px]" style={{ color: "var(--mint)" }}>{fmtAED(r.eligibleIncome)}</strong>
+                Eligible monthly income{input.coBorrower ? " (combined)" : ""}{" "}
+                <strong className="mono text-[15px]" style={{ color: "var(--mint)" }}>{fmtAED(r.eligibleIncome)}</strong>
               </div>
             </div>
             <div className="grid grid-cols-5 gap-2 mt-2 text-[10px] uppercase tracking-[0.08em] text-[var(--ink-faint)] font-disp font-semibold sm:hidden">
               <span>Source</span><span>Freq</span><span>Amount</span><span>%</span><span className="text-right">Monthly</span>
+            </div>
+
+            {/* co-borrower — calculation only, never written to a case */}
+            <div
+              className="mt-4 rounded-lg p-3.5 transition-colors"
+              style={{
+                border: input.coBorrower ? "1px solid rgba(87,194,234,0.35)" : "1px dashed var(--line)",
+                background: input.coBorrower ? "rgba(87,194,234,0.045)" : "transparent",
+              }}
+            >
+              {!input.coBorrower ? (
+                <button
+                  className="btn btn-ghost btn-sm"
+                  onClick={() => up({ coBorrower: { name: "", incomes: [newIncomeRow(sourcePool[0], input.employment)], existingEmis: 0 } })}
+                >
+                  <IPlus size={13} /> Add co-borrower (if applicable)
+                </button>
+              ) : (
+                <div className="anim-fade-in">
+                  <div className="flex items-center justify-between mb-2.5">
+                    <span className="text-[11px] uppercase tracking-[0.12em] font-disp font-semibold" style={{ color: "var(--sky)" }}>
+                      Co-borrower · combined for DBR
+                    </span>
+                    <button
+                      className="text-[var(--ink-faint)] hover:text-[var(--coral)] transition-colors"
+                      title="Remove co-borrower"
+                      onClick={() => up({ coBorrower: null })}
+                    >
+                      <ITrash size={14} />
+                    </button>
+                  </div>
+                  <div className="grid grid-cols-1 sm:grid-cols-[1fr_170px] gap-2 mb-2">
+                    <div>
+                      <label className="label">Co-borrower name</label>
+                      <input
+                        className="input"
+                        placeholder="Shown on the report only"
+                        value={input.coBorrower.name}
+                        onChange={(e) => up({ coBorrower: { ...input.coBorrower!, name: e.target.value } })}
+                      />
+                    </div>
+                    <div>
+                      <label className="label">Their existing EMIs</label>
+                      <NumIn value={input.coBorrower.existingEmis} onChange={(n) => up({ coBorrower: { ...input.coBorrower!, existingEmis: n } })} step={100} />
+                    </div>
+                  </div>
+                  <div className="space-y-2">
+                    {input.coBorrower.incomes.map((row) => (
+                      <div key={row.id} className="grid grid-cols-[1fr_92px_110px_76px_100px_30px] gap-2 items-center">
+                        <select className="select" value={row.source} onChange={(e) => patchCoIncome(row.id, { source: e.target.value })}>
+                          {sourcePool.map((s) => <option key={s}>{s}</option>)}
+                        </select>
+                        <select className="select" value={row.frequency} onChange={(e) => patchCoIncome(row.id, { frequency: e.target.value as Frequency })}>
+                          {FREQUENCIES.map((f) => <option key={f}>{f}</option>)}
+                        </select>
+                        <NumIn value={row.amount} onChange={(n) => patchCoIncome(row.id, { amount: n })} step={500} />
+                        <NumIn value={row.eligiblePct} onChange={(n) => patchCoIncome(row.id, { eligiblePct: Math.min(100, Math.max(0, n)) })} step={5} min={0} />
+                        <span className="mono text-[12.5px] text-right" style={{ color: "var(--sky)" }}>{fmtAED(incomeMonthly(row))}</span>
+                        <button
+                          className="text-[var(--ink-faint)] hover:text-[var(--coral)] transition-colors justify-self-center"
+                          title="Remove row"
+                          onClick={() =>
+                            setInput((p) => ({
+                              ...p,
+                              coBorrower: p.coBorrower
+                                ? { ...p.coBorrower, incomes: p.coBorrower.incomes.filter((x) => x.id !== row.id) }
+                                : p.coBorrower,
+                            }))
+                          }
+                        >
+                          <IX size={14} />
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                  <div className="flex items-center justify-between mt-2.5">
+                    <button
+                      className="btn btn-ghost btn-sm"
+                      onClick={() =>
+                        setInput((p) => ({
+                          ...p,
+                          coBorrower: p.coBorrower
+                            ? { ...p.coBorrower, incomes: [...p.coBorrower.incomes, newIncomeRow(sourcePool[Math.min(p.coBorrower.incomes.length, sourcePool.length - 1)], input.employment)] }
+                            : p.coBorrower,
+                        }))
+                      }
+                    >
+                      <IPlus size={13} /> Add co-borrower income
+                    </button>
+                    <div className="text-[12.5px]">
+                      Co-borrower income <strong className="mono text-[14px]" style={{ color: "var(--sky)" }}>{fmtAED(r.coIncome)}</strong>
+                    </div>
+                  </div>
+                  <p className="text-[11px] text-[var(--ink-faint)] mt-2 mb-0">
+                    Counted in the eligibility calculation only — the co-borrower is never written to the case file.
+                  </p>
+                </div>
+              )}
             </div>
           </Section>
 
@@ -513,9 +724,12 @@ export default function Calculator() {
               <button className="btn btn-primary justify-center" onClick={onView}><IEye size={15} /> View bank-facing report</button>
               <button className="btn btn-ghost justify-center" onClick={onPdf}><IDownload size={15} /> Download PDF</button>
               <div className="grid grid-cols-2 gap-2">
-                <button className="btn btn-mint justify-center" onClick={onSave}>Save check</button>
-                <button className="btn btn-ghost justify-center" onClick={onOpenCase}>Open case</button>
+                <button className="btn btn-mint justify-center" onClick={onSave} title="Stores the eligibility check only — never creates a case">Save check</button>
+                <button className="btn btn-ghost justify-center" onClick={onOpenCase} title="Opens a pipeline case from this check (asks for confirmation)">Open case…</button>
               </div>
+              <p className="text-[10.5px] text-[var(--ink-faint)] text-center m-0">
+                Saving only stores the check for audit — a case is created only when you choose “Open case”.
+              </p>
               {savedId && <p className="text-[11px] text-[var(--ink-faint)] text-center m-0">Saved as audit entry #{savedId}{input.name ? ` for ${input.name}` : ""}</p>}
             </div>
           </div>
@@ -660,8 +874,19 @@ export default function Calculator() {
                           PDF
                         </button>
                         <button className="btn btn-ghost btn-sm" onClick={() => {
-                          const ri = computeMortgage(parsed.input as MortgageInput);
-                          setPreview({ input: parsed.input as MortgageInput, res: ri, tables: [], by: session?.name ?? "HFMC" });
+                          const pi = parsed.input as MortgageInput;
+                          const ri = computeMortgage(pi);
+                          const liab = runScenarios(liabScenariosOf(pi));
+                          const income = runScenarios(incomeScenariosOf(pi));
+                          const best = [...liab, ...income]
+                            .map((s) => ({ label: s.label, d: s.mpbf - ri.finalMpbf, dbr: s.dbr }))
+                            .filter((c) => c.d > 5000)
+                            .sort((a, b) => b.d - a.d)[0];
+                          const obs = best
+                            ? `Strongest lever: ${best.label} — DBR moves ${fmtPct(ri.currentDbr)} → ${fmtPct(best.dbr)}, unlocking ${fmtAED(best.d)} of additional MPBF.`
+                            : `No scenario improves the baseline ${fmtAED(ri.finalMpbf)} — the binding constraint is ${ri.limitedBy.toLowerCase()}.`;
+                          const tables = buildScenarioTablesFor(pi, ri);
+                          setPreview({ input: pi, res: ri, tables, by: session?.name ?? "HFMC", obs });
                         }}>
                           <IEye size={13} /> Report
                         </button>
@@ -708,6 +933,22 @@ export default function Calculator() {
           onPdf={() => generateMortgagePdf(preview.input, preview.res, preview.tables, preview.by)}
         />
       )}
+
+      <ConfirmModal
+        open={confirmCase}
+        onClose={() => setConfirmCase(false)}
+        tone="mint"
+        title="Open a case from this check?"
+        body={
+          <span>
+            This will create a new pipeline case for <strong>{input.name.trim() || "Unnamed applicant"}</strong> with a loan
+            amount of <strong>{fmtAED(r.finalMpbf)}</strong> (the final MPBF). The saved eligibility check is attached to it for
+            audit. No case is created until you confirm.
+          </span>
+        }
+        confirmLabel="Create case"
+        onConfirm={doCreateCase}
+      />
     </div>
   );
 }
@@ -733,11 +974,11 @@ function PreviewReport({
   onClose,
   onPdf,
 }: {
-  data: { input: MortgageInput; res: MortgageResult; tables: PdfScenarioTable[]; by: string };
+  data: { input: MortgageInput; res: MortgageResult; tables: PdfScenarioTable[]; by: string; obs: string };
   onClose: () => void;
   onPdf: () => void;
 }) {
-  const { input: inp, res, tables, by } = data;
+  const { input: inp, res, tables, by, obs } = data;
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => e.key === "Escape" && onClose();
@@ -793,6 +1034,9 @@ function PreviewReport({
                 rows={[
                   ["Applicant", inp.name || "—"],
                   ["Applicant type", `${inp.applicantType} · ${inp.employment}`],
+                  ...(inp.coBorrower
+                    ? ([["Co-borrower", `${inp.coBorrower.name || "—"} · income ${fmtAED(res.coIncome)}/mo · EMIs ${fmtAED(inp.coBorrower.existingEmis)}/mo (combined)`]] as [string, string][])
+                    : []),
                   ["Property value", fmtAED(inp.propertyValue)],
                   ["Bank valuation", inp.valuation ? fmtAED(inp.valuation) : "Not available"],
                   ["Calculation basis", `${fmtAED(res.calcBasis)} (${res.basisLabel})`],
@@ -802,8 +1046,14 @@ function PreviewReport({
               <div className="paper-sec">Eligibility Summary</div>
               <Pkv
                 rows={[
-                  ["Eligible monthly income", fmtAED(res.eligibleIncome)],
-                  ["Existing monthly liabilities", fmtAED(res.existingEmis)],
+                  ["Eligible monthly income", `${fmtAED(res.eligibleIncome)}${inp.coBorrower ? " (combined)" : ""}`],
+                  ...(inp.coBorrower
+                    ? ([
+                        ["  · Applicant", fmtAED(res.ownIncome)],
+                        ["  · Co-borrower", fmtAED(res.coIncome)],
+                      ] as [string, string][])
+                    : []),
+                  ["Existing monthly liabilities", `${fmtAED(res.existingEmis)}${inp.coBorrower ? " (combined)" : ""}`],
                   ["Current DBR", fmtPct(res.currentDbr)],
                   ["Maximum DBR (CBUAE)", fmtPct(res.maxDbr)],
                   ["Residual DBR", fmtPct(res.residualDbr)],
@@ -815,6 +1065,7 @@ function PreviewReport({
                   ["Actual / contract rate", fmtPct(res.actualRate)],
                   ["Stress load factor", `+ ${res.loadFactor.toFixed(2)}%`],
                   ["Assessment rate", fmtPct(res.assessmentRate)],
+                  ["LTV applied", `${res.ltvPct}%${inp.ltvPctChoice != null ? " (selected)" : ` (default · ${inp.applicantType})`}`],
                   ["Current age", `${res.ageNowYears} years`],
                   ["Age processing margin", `${inp.marginMonths} months`],
                   ["Maximum tenor used", tenorLabel(res.maxTenorMonths)],
@@ -886,11 +1137,55 @@ function PreviewReport({
                 </tbody>
                 <tfoot>
                   <tr>
-                    <td colSpan={4}>Eligible monthly income</td>
+                    <td colSpan={4}>Eligible monthly income{inp.coBorrower ? " (combined)" : ""}</td>
                     <td className="num">{fmtAED(res.eligibleIncome)}</td>
                   </tr>
                 </tfoot>
               </table>
+
+              {inp.coBorrower && (
+                <>
+                  <div className="paper-sec">
+                    Income Breakdown — Co-borrower{inp.coBorrower.name ? ` (${inp.coBorrower.name})` : ""}
+                  </div>
+                  <table className="paper-tbl">
+                    <thead>
+                      <tr>
+                        <th>Source</th>
+                        <th>Frequency</th>
+                        {numTh("Amount")}
+                        {numTh("Elig %")}
+                        {numTh("Monthly")}
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {inp.coBorrower.incomes.length === 0 && (
+                        <tr><td colSpan={5}>No income entered</td></tr>
+                      )}
+                      {inp.coBorrower.incomes.map((row) => (
+                        <tr key={row.id}>
+                          <td>{row.source}</td>
+                          <td>{row.frequency}</td>
+                          <td className="num">{fmtAED(row.amount)}</td>
+                          <td className="num">{row.eligiblePct}%</td>
+                          <td className="num">{fmtAED(incomeMonthly(row))}</td>
+                        </tr>
+                      ))}
+                      <tr>
+                        <td colSpan={2}>Co-borrower existing EMIs</td>
+                        <td className="num" colSpan={2}></td>
+                        <td className="num">{fmtAED(inp.coBorrower.existingEmis)}</td>
+                      </tr>
+                    </tbody>
+                    <tfoot>
+                      <tr>
+                        <td colSpan={4}>Co-borrower eligible income</td>
+                        <td className="num">{fmtAED(res.coIncome)}</td>
+                      </tr>
+                    </tfoot>
+                  </table>
+                </>
+              )}
 
               <div className="paper-sec">Liability Breakdown</div>
               <table className="paper-tbl">
@@ -948,6 +1243,34 @@ function PreviewReport({
           <div className="mono text-[10px] uppercase tracking-[0.14em] text-[var(--ink-faint)] mb-1.5 px-1">Page 3 · What-if analysis</div>
           <div className="paper mb-7 anim-fade-up">
             <div className="paper-body">
+              <p className="text-[11.5px] mt-0 mb-4" style={{ color: "#5b6367" }}>
+                Each scenario re-runs the full calculation with one input changed. Baseline final MPBF:{" "}
+                <strong style={{ color: "#172024" }}>{fmtAED(res.finalMpbf)}</strong> — positive deltas add eligibility.
+              </p>
+
+              {obs && (
+                <div
+                  className="mb-5"
+                  style={{
+                    background: "#fbf6ec",
+                    border: "1px solid rgba(198,138,40,0.45)",
+                    borderLeft: "4px solid #c68a28",
+                    borderRadius: 4,
+                    padding: "12px 16px",
+                  }}
+                >
+                  <div
+                    className="font-disp font-bold text-[10px] tracking-[0.14em] mb-1.5"
+                    style={{ color: "#c68a28" }}
+                  >
+                    KEY OBSERVATION
+                  </div>
+                  <div className="text-[12px] leading-relaxed" style={{ color: "#172024" }}>
+                    {obs}
+                  </div>
+                </div>
+              )}
+
               {tables.length === 0 && (
                 <p className="text-[11.5px] m-0" style={{ color: "#5b6367" }}>
                   No what-if scenarios were captured for this saved check. Re-run the assessment to include them.

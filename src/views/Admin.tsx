@@ -408,7 +408,7 @@ function MasterTab({ kind }: { kind: "stages" | "whyPending" | "waitingFor" }) {
 
 function SlaTab() {
   const { db, saveSla, toggleSla, deleteSla, toast } = useStore();
-  const stages = [...db.stages].filter((s) => s.label !== "Closed").sort((a, b) => a.sortOrder - b.sortOrder);
+  const stages = [...db.stages].filter((s) => s.label !== "Closure" && s.label !== "Closed").sort((a, b) => a.sortOrder - b.sortOrder);
   const [stage, setStage] = useState(stages[0]?.label ?? "");
   const [bank, setBank] = useState("All");
   const [days, setDays] = useState("5");

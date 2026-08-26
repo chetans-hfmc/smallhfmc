@@ -1,14 +1,179 @@
 import { useMemo, useState } from "react";
-import { slaFor, stageEnteredAt, useStore } from "../lib/store";
-import type { LoanCase, Task } from "../lib/types";
+import { bulletinCanAct, flagsFor, slaFor, stageEnteredAt, useStore } from "../lib/store";
+import type { BulletinItem, Instruction, LoanCase, Reply, Task } from "../lib/types";
 import {
   ageDays, caseStatusOf, fmtDate, fmtDateTime, fmtMoney, inDaysISO, primaryBank, relTime, todayISO,
 } from "../lib/format";
 import { Avatar, Chip, DueChip, Modal, StatusChip } from "../components/ui";
 import { BankChips, CaseStateChip, CommissionPanel, ConfirmModal, SourceChip, WaButtons } from "../components/bits";
 import {
-  IArrowR, IBank, ICalc, IChevronL, IClock, IFlag, IHistory, IPlus, ITrash, IZap,
+  IArrowR, IBank, ICalc, ICheck, IChevronL, IClock, IFlag, IHistory, IPlus, ITrash, IZap,
 } from "../components/icons";
+
+/* a lightweight reply thread shared by directives */
+function DirectiveReply({ replies, onSend }: { replies: Reply[]; onSend: (t: string) => void }) {
+  const { userById } = useStore();
+  const [draft, setDraft] = useState("");
+  const send = () => {
+    if (!draft.trim()) return;
+    onSend(draft);
+    setDraft("");
+  };
+  return (
+    <div className="mt-2.5 space-y-2">
+      {replies.map((r) => (
+        <div key={r.id} className="flex items-start gap-2 anim-fade-in">
+          <Avatar name={userById(r.userId)?.name ?? "?"} size={20} />
+          <div className="min-w-0 flex-1 rounded-lg px-2.5 py-1.5" style={{ background: "rgba(232,241,239,0.035)", border: "1px solid var(--line-soft)" }}>
+            <span className="text-[11.5px] font-semibold">{userById(r.userId)?.name ?? "—"}</span>
+            <span className="mono text-[9.5px] text-[var(--ink-faint)] ml-1.5">{relTime(r.at)}</span>
+            <p className="text-[12px] text-[var(--ink-dim)] m-0 leading-snug">{r.text}</p>
+          </div>
+        </div>
+      ))}
+      <div className="flex items-center gap-2">
+        <input className="input" style={{ flex: 1, padding: "6px 10px", fontSize: 12.5 }} placeholder="Reply… (Enter)" value={draft}
+          onChange={(e) => setDraft(e.target.value)} onKeyDown={(e) => e.key === "Enter" && send()} />
+        <button className="btn btn-ghost btn-sm shrink-0" onClick={send} disabled={!draft.trim()}>Send</button>
+      </div>
+    </div>
+  );
+}
+
+/* prominent banner: every directive on this case (instructions + morning-bulletin items) */
+function DirectivesBanner({ c }: { c: LoanCase }) {
+  const { db, session, userById, canInstruct, addInstruction, completeInstruction, replyToInstruction, completeBulletin, replyToBulletin, toast } = useStore();
+  const me = session;
+  const [openThread, setOpenThread] = useState<Record<string, boolean>>({});
+  const [showComposer, setShowComposer] = useState(false);
+  const [text, setText] = useState("");
+  const [assignee, setAssignee] = useState(c.ownerId);
+  const [due, setDue] = useState(inDaysISO(2));
+  const manager = canInstruct();
+  if (!me) return null;
+
+  type Dir =
+    | { kind: "instruction"; key: string; i: Instruction }
+    | { kind: "bulletin"; key: string; b: BulletinItem };
+
+  const instrs: Dir[] = db.instructions.filter((i) => i.caseId === c.id).map((i) => ({ kind: "instruction", key: `i${i.id}`, i }));
+  const bulls: Dir[] = db.bulletin.filter((b) => b.caseId === c.id).map((b) => ({ kind: "bulletin", key: `b${b.id}`, b }));
+  const all = [...instrs, ...bulls].sort((a, z) => {
+    const ao = a.kind === "instruction" ? a.i.status : a.b.status;
+    const zo = z.kind === "instruction" ? z.i.status : z.b.status;
+    if (ao !== zo) return ao === "Open" ? -1 : 1;
+    const at = a.kind === "instruction" ? a.i.createdAt : a.b.createdAt;
+    const zt = z.kind === "instruction" ? z.i.createdAt : z.b.createdAt;
+    return zt.localeCompare(at);
+  });
+  const isActive = c.caseStatus === "Active";
+  if (all.length === 0 && !manager) return null;
+
+  const openCount = all.filter((d) => (d.kind === "instruction" ? d.i.status : d.b.status) === "Open").length;
+  const f = flagsFor(db.designations, me.role);
+
+  const canActInstr = (i: Instruction) => f.scope === "all" || i.issuedBy === me.id || i.assignedTo === me.id;
+  const canActBull = (b: BulletinItem) => bulletinCanAct(b, me, db);
+
+  return (
+    <div className="card anim-fade-up overflow-hidden" style={{ border: "1px solid rgba(242,176,76,0.35)", background: "linear-gradient(180deg, rgba(242,176,76,0.06), rgba(18,36,44,0.72))" }}>
+      <div className="flex items-center gap-2.5 px-4 py-2.5" style={{ borderBottom: "1px solid rgba(242,176,76,0.18)" }}>
+        <IFlag size={16} className="text-[var(--amber)]" />
+        <span className="font-disp font-semibold text-[13.5px]" style={{ color: "var(--amber)" }}>Directives on this case</span>
+        <span className="mono text-[11px] px-1.5 py-0.5 rounded-full" style={{ background: "rgba(242,176,76,0.15)", color: "var(--amber)" }}>
+          {openCount} open
+        </span>
+      </div>
+      <div className="divide-y" style={{ borderColor: "rgba(242,176,76,0.12)" }}>
+        {all.map((d) => {
+          const isInstr = d.kind === "instruction";
+          const status = isInstr ? d.i.status : d.b.status;
+          const createdAt = isInstr ? d.i.createdAt : d.b.createdAt;
+          const issuerId = isInstr ? d.i.issuedBy : d.b.issuedBy;
+          const text = isInstr ? d.i.instruction : d.b.task;
+          const replies = isInstr ? d.i.replies : d.b.replies;
+          const canAct = status === "Open" && (isInstr ? canActInstr(d.i) : canActBull(d.b));
+          const issuer = userById(issuerId);
+          const showThread = !!openThread[d.key];
+          const done = status === "Done";
+          return (
+            <div key={d.key} className="px-4 py-3" style={{ opacity: done ? 0.65 : 1 }}>
+              <div className="flex items-start gap-3">
+                <Avatar name={issuer?.name ?? "?"} size={30} />
+                <div className="min-w-0 flex-1">
+                  <div className="flex flex-wrap items-baseline gap-x-2">
+                    <span className="font-disp font-semibold text-[13px]">{issuer?.name ?? "—"}</span>
+                    <Chip tone={isInstr ? "sky" : "amber"}>{isInstr ? "instruction" : "bulletin"}</Chip>
+                    <span className="mono text-[10.5px] text-[var(--ink-faint)]">{relTime(createdAt)}</span>
+                    {isInstr && <DueChip dueISO={d.i.dueDate} />}
+                  </div>
+                  <p className={`text-[13.5px] leading-relaxed mt-1 mb-0 ${done ? "line-through text-[var(--ink-faint)]" : ""}`}>{text}</p>
+                  {isInstr && (
+                    <p className="text-[11px] text-[var(--ink-faint)] mt-0.5 mb-0">assigned to <span className="text-[var(--ink-dim)]">{userById(d.i.assignedTo)?.name ?? "—"}</span></p>
+                  )}
+                  {done && (isInstr ? d.i.completedAt : d.b.completedAt) && (
+                    <p className="text-[11px] mt-0.5 mb-0" style={{ color: "var(--mint)" }}>✓ done {relTime((isInstr ? d.i.completedAt : d.b.completedAt) as string)}</p>
+                  )}
+                </div>
+                <div className="flex flex-col gap-1.5 shrink-0">
+                  {canAct && (
+                    <button className="btn btn-mint btn-sm" onClick={() => {
+                      if (isInstr) { completeInstruction(d.i.id); } else { completeBulletin(d.b.id); }
+                      toast("success", "Directive marked done.");
+                    }}>
+                      <ICheck size={13} /> Done
+                    </button>
+                  )}
+                  <button className="btn btn-ghost btn-sm" onClick={() => setOpenThread((t) => ({ ...t, [d.key]: !t[d.key] }))}>
+                    Reply {replies.length > 0 && <span className="mono">({replies.length})</span>}
+                  </button>
+                </div>
+              </div>
+              {showThread && (
+                <div className="pl-[42px]">
+                  <DirectiveReply replies={replies} onSend={(t) => (isInstr ? replyToInstruction(d.i.id, t) : replyToBulletin(d.b.id, t))} />
+                </div>
+              )}
+            </div>
+          );
+        })}
+        {all.length === 0 && (
+          <p className="px-4 py-3 text-[12.5px] text-[var(--ink-faint)] m-0">No directives yet — issue the first one below.</p>
+        )}
+      </div>
+
+      {manager && isActive && (
+        <div className="px-4 py-3" style={{ borderTop: "1px dashed rgba(242,176,76,0.25)" }}>
+          {showComposer ? (
+            <div className="space-y-2 anim-fade-in">
+              <textarea className="textarea" rows={2} autoFocus placeholder="e.g. Call the client today and get the NOC — do not let this slip."
+                value={text} onChange={(e) => setText(e.target.value)} />
+              <div className="flex flex-wrap items-center gap-2">
+                <select className="select" style={{ width: 170 }} value={assignee} onChange={(e) => setAssignee(parseInt(e.target.value, 10))}>
+                  {db.users.filter((u) => u.active).map((u) => <option key={u.id} value={u.id}>{u.name}</option>)}
+                </select>
+                <input className="input mono" style={{ width: 150 }} type="date" value={due} onChange={(e) => e.target.value && setDue(e.target.value)} />
+                <button className="btn btn-primary btn-sm" onClick={() => {
+                  if (!text.trim()) return toast("error", "Write the instruction first.");
+                  addInstruction(c.id, { instruction: text, assignedTo: assignee, dueDate: due });
+                  setText(""); setShowComposer(false);
+                  toast("success", "Instruction issued.");
+                }}>
+                  <IFlag size={13} /> Issue
+                </button>
+                <button className="btn btn-ghost btn-sm" onClick={() => setShowComposer(false)}>Cancel</button>
+              </div>
+            </div>
+          ) : (
+            <button className="btn btn-ghost btn-sm" onClick={() => setShowComposer(true)}>
+              <IPlus size={13} /> Issue an instruction
+            </button>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
 
 function EditableTask({ task }: { task: Task }) {
   const { db, canEditTask, updateTask, completeTask, toast, userById } = useStore();
@@ -274,6 +439,9 @@ export default function CaseDetail({ id }: { id: number }) {
         </div>
       )}
 
+      {/* directives — management's word on this file, front and centre */}
+      <DirectivesBanner c={c} />
+
       {/* header */}
       <div className="card p-5 anim-fade-up">
         <div className="flex flex-wrap items-start gap-4">
@@ -331,7 +499,7 @@ export default function CaseDetail({ id }: { id: number }) {
         <div className="mt-5 overflow-x-auto pb-1">
           <div className="flex items-center min-w-max">
             {stages.map((s, i) => {
-              const reached = i < stageIdx || c.stage === "Closed";
+              const reached = i < stageIdx || c.stage === "Closure" || c.stage === "Closed";
               const current = s.label === c.stage;
               const lost = c.caseStatus === "Lost";
               return (
@@ -477,7 +645,7 @@ export default function CaseDetail({ id }: { id: number }) {
             </div>
           )}
 
-          <InstructionsPanel c={c} />
+
 
           <div className="card anim-fade-up">
             <div className="px-4 py-3 border-b flex items-center gap-2" style={{ borderColor: "var(--line-soft)" }}>
