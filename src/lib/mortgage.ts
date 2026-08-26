@@ -50,6 +50,7 @@ export interface MortgageInput {
   valuation: number | null;
   requested: number;
   ltvPctChoice: number | null; // null = default for applicant type
+  customLtv: string; // free-text custom LTV %; applied when non-empty, overriding the chips
   incomes: IncomeRow[];
   coBorrower: CoBorrower | null; // combined for DBR only — never written to a case
   liabilities: LiabRow[];
@@ -115,7 +116,7 @@ export function defaultInput(): MortgageInput {
   return {
     name: "", whatsapp: "", applicantType: "Expatriate", employment: "Salaried",
     dob: "1990-01-15", finalAge: 60, marginMonths: 2,
-    propertyValue: 1500000, valuation: null, requested: 1200000, ltvPctChoice: null,
+    propertyValue: 1500000, valuation: null, requested: 1200000, ltvPctChoice: null, customLtv: "",
     incomes: [newIncomeRow("Basic Salary")],
     coBorrower: null,
     liabilities: [],
@@ -224,9 +225,11 @@ export function computeMortgage(inp: MortgageInput): MortgageResult {
     : "property value (no valuation yet)";
 
   const ltvDefault = defaultLtvPct(inp.applicantType);
-  const ltvPct = inp.ltvPctChoice ?? ltvDefault;
+  const customNum = parseFloat(inp.customLtv);
+  const ltvPct = !Number.isNaN(customNum) && customNum > 0 ? Math.min(95, Math.max(1, customNum)) : inp.ltvPctChoice ?? ltvDefault;
+  const ltvIsCustom = !Number.isNaN(customNum) && customNum > 0;
   const ltvMpbf = (calcBasis * ltvPct) / 100;
-  if (inp.ltvPctChoice != null && inp.ltvPctChoice !== ltvDefault)
+  if (ltvIsCustom || (inp.ltvPctChoice != null && inp.ltvPctChoice !== ltvDefault))
     notes.push(`LTV manually set to ${ltvPct}% (default for ${inp.applicantType} is ${ltvDefault}%).`);
 
   const dbrMpbf = pvFor(availableEmi, assessmentRate, maxTenorMonths);
