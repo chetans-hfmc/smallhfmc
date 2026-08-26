@@ -76,15 +76,15 @@ function DirectivesBanner({ c }: { c: LoanCase }) {
   const canActBull = (b: BulletinItem) => bulletinCanAct(b, me, db);
 
   return (
-    <div className="card anim-fade-up overflow-hidden" style={{ border: "1px solid rgba(242,176,76,0.35)", background: "linear-gradient(180deg, rgba(242,176,76,0.06), rgba(18,36,44,0.72))" }}>
-      <div className="flex items-center gap-2.5 px-4 py-2.5" style={{ borderBottom: "1px solid rgba(242,176,76,0.18)" }}>
+    <div className="card anim-fade-up overflow-hidden" style={{ border: "1px solid var(--amber-line)", background: "linear-gradient(180deg, color-mix(in srgb, var(--amber) 8%, var(--surface)), var(--surface))" }}>
+      <div className="flex items-center gap-2.5 px-4 py-2.5" style={{ borderBottom: "1px solid color-mix(in srgb, var(--amber) 20%, transparent)" }}>
         <IFlag size={16} className="text-[var(--amber)]" />
         <span className="font-disp font-semibold text-[13.5px]" style={{ color: "var(--amber)" }}>Directives on this case</span>
-        <span className="mono text-[11px] px-1.5 py-0.5 rounded-full" style={{ background: "rgba(242,176,76,0.15)", color: "var(--amber)" }}>
+        <span className="mono text-[11px] px-1.5 py-0.5 rounded-full" style={{ background: "var(--amber-tint)", color: "var(--amber)" }}>
           {openCount} open
         </span>
       </div>
-      <div className="divide-y" style={{ borderColor: "rgba(242,176,76,0.12)" }}>
+      <div className="divide-y" style={{ borderColor: "color-mix(in srgb, var(--amber) 14%, transparent)" }}>
         {all.map((d) => {
           const isInstr = d.kind === "instruction";
           const status = isInstr ? d.i.status : d.b.status;
