@@ -179,8 +179,11 @@ interface StoreShape {
   addInstruction: (caseId: number, input: { instruction: string; assignedTo: number; dueDate: string }) => void;
   completeInstruction: (id: number) => void;
   replyToInstruction: (id: number, text: string) => void;
-  issueBulletin: (input: { date: string; task: string; caseId: number | null; targets: number[] }) => void;
-  completeBulletin: (id: number) => void;
+  issueBulletin: (input: { date: string; task: string; caseId: number | null; targets: number[]; repeat?: "none" | "daily" | "weekdays"; asTemplate?: boolean }) => void;
+  completeBulletin: (id: number, opts?: { alsoTaskDone?: boolean }) => void;
+  carryBulletin: (id: number) => void;
+  dropBulletin: (id: number) => void;
+  deleteBulletin: (id: number) => void;
   replyToBulletin: (id: number, text: string) => void;
   canInstruct: () => boolean;
   canAdmin: () => boolean;
@@ -667,11 +670,54 @@ export function StoreProvider({ children }: { children: ReactNode }) {
   /* ---------------- morning bulletin ---------------- */
 
   const issueBulletin = useCallback(
-    (input: { date: string; task: string; caseId: number | null; targets: number[] }) => {
+    (input: { date: string; task: string; caseId: number | null; targets: number[]; repeat?: "none" | "daily" | "weekdays"; asTemplate?: boolean }) => {
       const me = session;
       setDb((prev) => {
+        let nid = nextId(prev.bulletin);
+        const list = [...prev.bulletin];
+        let acts = prev.activities;
+
+        if (input.asTemplate && input.repeat && input.repeat !== "none") {
+          // save the routine: a hidden template + today's live instance
+          const templateId = nid++;
+          list.push({
+            id: templateId,
+            date: input.date,
+            issuedBy: me?.id ?? 0,
+            task: input.task.trim(),
+            caseId: input.caseId,
+            targets: input.targets,
+            status: "Open",
+            completedAt: null,
+            completedBy: null,
+            createdAt: nowISO(),
+            replies: [],
+            repeat: input.repeat,
+            templateId: null,
+            isTemplate: true,
+          });
+          const inst: BulletinItem = {
+            id: nid++,
+            date: todayISO(),
+            issuedBy: me?.id ?? 0,
+            task: input.task.trim(),
+            caseId: input.caseId,
+            targets: input.targets,
+            status: "Open",
+            completedAt: null,
+            completedBy: null,
+            createdAt: nowISO(),
+            replies: [],
+            templateId,
+            isTemplate: false,
+          };
+          list.push(inst);
+          if (input.caseId) acts = logAct(acts, input.caseId, me?.id ?? 0, "Directive issued (routine)", undefined, inst.task);
+          return { ...prev, bulletin: list, activities: acts };
+        }
+
         const b: BulletinItem = {
-          id: nextId(prev.bulletin),
+          id: nid++,
           date: input.date,
           issuedBy: me?.id ?? 0,
           task: input.task.trim(),
@@ -683,26 +729,38 @@ export function StoreProvider({ children }: { children: ReactNode }) {
           createdAt: nowISO(),
           replies: [],
         };
-        let acts = prev.activities;
-        if (input.caseId)
-          acts = logAct(acts, input.caseId, me?.id ?? 0, "Directive issued", undefined, b.task);
-        return { ...prev, bulletin: [...prev.bulletin, b], activities: acts };
+        if (input.caseId) acts = logAct(acts, input.caseId, me?.id ?? 0, "Directive issued", undefined, b.task);
+        return { ...prev, bulletin: [...list, b], activities: acts };
       });
     },
     [session]
   );
 
   const completeBulletin = useCallback(
-    (id: number) => {
+    (id: number, opts?: { alsoTaskDone?: boolean }) => {
       const me = session;
       setDb((prev) => {
         const before = prev.bulletin.find((b) => b.id === id);
         if (!before) return prev;
         let acts = prev.activities;
+        let tasks = prev.tasks;
         if (before.caseId)
           acts = logAct(acts, before.caseId, me?.id ?? 0, "Directive completed", before.task);
+        // smart link: optionally close the case's current task in the same move
+        if (opts?.alsoTaskDone && before.caseId) {
+          const open = tasks.find((t) => t.caseId === before.caseId && t.status === "Open");
+          if (open) {
+            tasks = tasks.map((t) =>
+              t.id === open.id
+                ? { ...t, status: "Done" as const, completedAt: nowISO(), remarks: t.remarks || "Closed from morning-bulletin directive." }
+                : t
+            );
+            acts = logAct(acts, before.caseId, me?.id ?? 0, "Task completed", open.description, "via directive");
+          }
+        }
         return {
           ...prev,
+          tasks,
           bulletin: prev.bulletin.map((b) =>
             b.id === id ? { ...b, status: "Done" as const, completedAt: nowISO(), completedBy: me?.id ?? null } : b
           ),
@@ -712,6 +770,60 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     },
     [session]
   );
+
+  const carryBulletin = useCallback(
+    (id: number) => {
+      const me = session;
+      setDb((prev) => {
+        const before = prev.bulletin.find((b) => b.id === id);
+        if (!before || before.status !== "Open" || before.dropped) return prev;
+        const today = todayISO();
+        let nid = nextId(prev.bulletin);
+        const carried: BulletinItem = {
+          ...before,
+          id: nid++,
+          date: today,
+          carriedFrom: before.date,
+          templateId: before.templateId ?? null,
+          isTemplate: false,
+          status: "Open",
+          completedAt: null,
+          completedBy: null,
+          createdAt: nowISO(),
+          replies: [],
+          dropped: false,
+        };
+        let acts = prev.activities;
+        if (before.caseId)
+          acts = logAct(acts, before.caseId, me?.id ?? 0, "Directive carried forward", before.date, today);
+        return {
+          ...prev,
+          bulletin: [
+            ...prev.bulletin.map((b) => (b.id === id ? { ...b, dropped: true } : b)),
+            carried,
+          ],
+          activities: acts,
+        };
+      });
+    },
+    [session]
+  );
+
+  const dropBulletin = useCallback((id: number) => {
+    setDb((prev) => ({
+      ...prev,
+      bulletin: prev.bulletin.map((b) => (b.id === id ? { ...b, dropped: true } : b)),
+    }));
+  }, []);
+
+  const deleteBulletin = useCallback((id: number) => {
+    setDb((prev) => {
+      const before = prev.bulletin.find((b) => b.id === id);
+      if (!before) return prev;
+      // deleting a template retires its future spawns; past instances stay as record
+      return { ...prev, bulletin: prev.bulletin.filter((b) => b.id !== id) };
+    });
+  }, []);
 
   const replyToBulletin = useCallback(
     (id: number, text: string) => {
@@ -1106,7 +1218,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     db, session, route, toasts, nav, login, logout, toast, dismissToast,
     createCase, updateCase, deleteCase, setCaseState, createTask, updateTask, completeTask,
     addInstruction, completeInstruction, replyToInstruction,
-    issueBulletin, completeBulletin, replyToBulletin,
+    issueBulletin, completeBulletin, carryBulletin, dropBulletin, deleteBulletin, replyToBulletin,
     canInstruct, canAdmin,
     saveMortgageCheck, addDesignation, updateDesignation, deleteDesignation,
     runCheck, createCaseFromCheck, linkCheckToCase,
