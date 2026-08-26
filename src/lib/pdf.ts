@@ -36,7 +36,12 @@ export function generateMortgagePdf(
   const BOTTOM = 780;
   let y = 0;
 
-  const header = (page: number) => {
+  const now = new Date();
+  const ref = `HFMC-MEA-${now.getFullYear()}${String(now.getMonth() + 1).padStart(2, "0")}${String(
+    now.getDate()
+  ).padStart(2, "0")}-${(inp.name || "client").replace(/[^a-z0-9]/gi, "").slice(0, 6).toUpperCase() || "CLIENT"}`;
+
+  const header = (_page?: number) => {
     doc.setFillColor(...INK);
     doc.rect(0, 0, W, 76, "F");
     doc.setFillColor(...AMBER);
@@ -44,16 +49,36 @@ export function generateMortgagePdf(
     doc.setTextColor(244, 238, 226);
     doc.setFont("helvetica", "bold");
     doc.setFontSize(15);
-    doc.text("HFMC — Mortgage Eligibility Assessment", M, 34);
+    doc.text("HFMC — Mortgage Eligibility Assessment", M, 32);
     doc.setFont("helvetica", "normal");
     doc.setFontSize(9);
     doc.setTextColor(180, 176, 166);
+    doc.text("Preliminary assessment · not a bank approval or binding offer", M, 50);
+    doc.setFontSize(8);
+    doc.setTextColor(214, 178, 106);
+    doc.text(ref, W - M, 32, { align: "right" });
+    doc.setTextColor(180, 176, 166);
     doc.text(
-      `Preliminary assessment · not a bank approval or binding offer · ${new Date().toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "numeric" })}`,
-      M, 52
+      now.toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "numeric" }),
+      W - M, 50, { align: "right" }
     );
-    doc.text(`Page ${page}`, W - M, 52, { align: "right" });
     y = 100;
+  };
+
+  /* page footer written once all pages exist */
+  const footer = () => {
+    const total = doc.getNumberOfPages();
+    for (let p = 1; p <= total; p++) {
+      doc.setPage(p);
+      doc.setDrawColor(...RULE);
+      doc.setLineWidth(0.6);
+      doc.line(M, 806, W - M, 806);
+      doc.setFont("helvetica", "normal");
+      doc.setFontSize(7.5);
+      doc.setTextColor(...FAINT);
+      doc.text(`${ref} · preliminary`, M, 818);
+      doc.text(`Page ${p} of ${total}`, W - M, 818, { align: "right" });
+    }
   };
 
   const section = (title: string) => {
@@ -79,8 +104,12 @@ export function generateMortgagePdf(
       doc.text(k, M, y);
       doc.setFont("helvetica", "bold");
       doc.setTextColor(...INK);
-      doc.text(v, M + 215, y);
-      y += 15;
+      const lines = doc.splitTextToSize(v, 235) as string[];
+      for (let li = 0; li < lines.length; li++) {
+        doc.text(lines[li], W - M, y + li * 12, { align: "right" });
+      }
+      y += 15 * lines.length;
+      y += 1;
     }
   };
 
@@ -396,6 +425,8 @@ export function generateMortgagePdf(
     new Date().toLocaleString("en-GB", { day: "2-digit", month: "short", year: "numeric", hour: "2-digit", minute: "2-digit" }),
     W - M, y, { align: "right" }
   );
+
+  footer();
 
   const safeName = (inp.name || "applicant").replace(/[^a-z0-9]+/gi, "-").toLowerCase();
   doc.save(`HFMC-eligibility-${safeName}.pdf`);

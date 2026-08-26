@@ -4,6 +4,7 @@ import { commissionFor, fmtMoney, fmtRate } from "../lib/format";
 import { BarList, useCountUp } from "../components/charts";
 import { TONE_HEX } from "../lib/format";
 import { LogoMark } from "../components/icons";
+import { ThemeToggle } from "../components/ui";
 
 const DEMOS = [
   { email: "super@meridian.ae", pw: "super123", label: "Super Admin", sub: "platform owner · above HoC" },

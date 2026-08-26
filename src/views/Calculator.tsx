@@ -990,9 +990,26 @@ function PreviewReport({
     };
   }, [onClose]);
 
-  const date = new Date().toLocaleDateString("en-GB", { day: "2-digit", month: "long", year: "numeric" });
+  const now = new Date();
+  const date = now.toLocaleDateString("en-GB", { day: "2-digit", month: "long", year: "numeric" });
+  const ref = `HFMC-MEA-${now.getFullYear()}${String(now.getMonth() + 1).padStart(2, "0")}${String(
+    now.getDate()
+  ).padStart(2, "0")}-${(inp.name || "client").replace(/[^a-z0-9]/gi, "").slice(0, 6).toUpperCase() || "CLIENT"}`;
   const numTh = (t: string) => (
     <th className="num">{t}</th>
+  );
+
+  const PageLabel = ({ n, title }: { n: number; title: string }) => (
+    <div className="paper-page-label">
+      <span>Page {n} of 3 · {title}</span>
+    </div>
+  );
+
+  const SlimBand = ({ n, title }: { n: number; title: string }) => (
+    <div className="paper-band paper-band--slim">
+      <span className="font-disp font-bold text-[12px] tracking-[0.03em]">HFMC — Mortgage Eligibility Assessment</span>
+      <span className="text-[10px] opacity-70 mono">Page {n} · {title} · {ref}</span>
+    </div>
   );
 
   return (
@@ -1022,11 +1039,19 @@ function PreviewReport({
           </div>
 
           {/* ---------- page 1 ---------- */}
-          <div className="mono text-[10px] uppercase tracking-[0.14em] text-[var(--ink-faint)] mb-1.5 px-1">Page 1 · Eligibility summary</div>
+          <PageLabel n={1} title="Eligibility summary" />
           <div className="paper mb-7 anim-fade-up">
             <div className="paper-band">
-              <div className="font-disp font-bold text-[17px] leading-tight">HFMC — Mortgage Eligibility Assessment</div>
-              <div className="text-[10.5px] opacity-75 mt-1">Preliminary assessment · not a bank approval or binding offer · {date}</div>
+              <div className="flex items-start justify-between gap-4">
+                <div>
+                  <div className="font-disp font-bold text-[17px] leading-tight">HFMC — Mortgage Eligibility Assessment</div>
+                  <div className="text-[10.5px] opacity-75 mt-1">Preliminary assessment · not a bank approval or binding offer</div>
+                </div>
+                <div className="text-right shrink-0">
+                  <div className="mono text-[10px] opacity-90">{ref}</div>
+                  <div className="text-[10px] opacity-70 mt-0.5">{date}</div>
+                </div>
+              </div>
             </div>
             <div className="paper-body">
               <div className="paper-sec">Applicant & Property</div>
@@ -1107,8 +1132,9 @@ function PreviewReport({
           </div>
 
           {/* ---------- page 2 ---------- */}
-          <div className="mono text-[10px] uppercase tracking-[0.14em] text-[var(--ink-faint)] mb-1.5 px-1">Page 2 · Supporting calculation</div>
+          <PageLabel n={2} title="Supporting calculation" />
           <div className="paper mb-7 anim-fade-up">
+            <SlimBand n={2} title="Supporting calculation" />
             <div className="paper-body">
               <div className="paper-sec">Income Breakdown</div>
               <table className="paper-tbl">
@@ -1240,8 +1266,9 @@ function PreviewReport({
           </div>
 
           {/* ---------- page 3 ---------- */}
-          <div className="mono text-[10px] uppercase tracking-[0.14em] text-[var(--ink-faint)] mb-1.5 px-1">Page 3 · What-if analysis</div>
+          <PageLabel n={3} title="What-if analysis" />
           <div className="paper mb-7 anim-fade-up">
+            <SlimBand n={3} title="What-if analysis" />
             <div className="paper-body">
               <p className="text-[11.5px] mt-0 mb-4" style={{ color: "#5b6367" }}>
                 Each scenario re-runs the full calculation with one input changed. Baseline final MPBF:{" "}
