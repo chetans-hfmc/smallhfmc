@@ -138,6 +138,8 @@ export interface Instruction {
   replies: Reply[];
 }
 
+export type RepeatKind = "none" | "daily" | "weekdays";
+
 /* a dated directive broadcast to teammates — the "morning bulletin" feed */
 export interface BulletinItem {
   id: number;
@@ -151,6 +153,11 @@ export interface BulletinItem {
   completedBy: number | null;
   createdAt: string;
   replies: Reply[];
+  carriedFrom?: string | null; // carried forward from this earlier date
+  dropped?: boolean; // closed as dropped, not completed
+  repeat?: RepeatKind; // "daily" | "weekdays" on templates only
+  templateId?: number | null; // spawned instances point back to their template
+  isTemplate?: boolean; // hidden from the feed; spawns one instance per eligible day
 }
 
 export interface AffordabilityCheck {

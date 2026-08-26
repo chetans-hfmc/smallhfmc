@@ -7,7 +7,7 @@ import type {
 import { seedDb } from "./data";
 import { computeAffordability } from "./calc";
 import type { CalcInput } from "./calc";
-import { ageDays, daysBetween, primaryBank, todayISO } from "./format";
+import { ageDays, daysBetween, primaryBank, toISODate, todayISO } from "./format";
 
 const DB_KEY = "meridian.casetracker.db.v6";
 const SESSION_KEY = "meridian.casetracker.session.v6";
@@ -73,6 +73,90 @@ export function bulletinVisible(b: BulletinItem, me: User, db: DB): boolean {
 export function bulletinCanAct(b: BulletinItem, me: User, db: DB): boolean {
   const f = flagsFor(db.designations, me.role);
   return f.scope === "all" || b.issuedBy === me.id || b.targets.includes(me.id);
+}
+
+/* carry / drop are manager moves: the issuer, or anyone with full scope */
+export function bulletinCanManage(b: BulletinItem, me: User, db: DB): boolean {
+  const f = flagsFor(db.designations, me.role);
+  return f.scope === "all" || b.issuedBy === me.id;
+}
+
+export function bulletinCanDelete(b: BulletinItem, me: User, db: DB): boolean {
+  return bulletinCanManage(b, me, db);
+}
+
+/* ---------------- bulletin lifecycle (spawn routines, resolve stale) ---------------- */
+
+const MS_DAY = 86400000;
+const SPAWN_BACK_LIMIT = 3; // don't drown a returning user: at most 3 past instances per template
+
+function eligibleDays(fromISO: string, repeat: "daily" | "weekdays"): string[] {
+  const out: string[] = [];
+  const today = todayISO();
+  const span = Math.min(daysBetween(fromISO, today), SPAWN_BACK_LIMIT + 1);
+  for (let back = Math.max(0, span); back >= 0; back--) {
+    const d = new Date(Date.now() - back * MS_DAY);
+    const iso = toISODate(d);
+    if (iso < fromISO) continue;
+    if (repeat === "weekdays") {
+      const dow = d.getDay();
+      if (dow === 0 || dow === 6) continue; // UAE weekend: Sat–Sun
+    }
+    out.push(iso);
+  }
+  return out;
+}
+
+export function spawnBulletinInstances(prev: DB): DB {
+  const templates = prev.bulletin.filter((b) => b.isTemplate && b.repeat && b.repeat !== "none");
+  if (templates.length === 0) return prev;
+  let nid = prev.bulletin.reduce((m, b) => Math.max(m, b.id), 0) + 1;
+  const added: BulletinItem[] = [];
+  for (const t of templates) {
+    for (const day of eligibleDays(t.date, t.repeat as "daily" | "weekdays")) {
+      const exists = prev.bulletin.some((b) => b.templateId === t.id && b.date === day) || added.some((b) => b.templateId === t.id && b.date === day);
+      if (exists) continue;
+      added.push({
+        ...t,
+        id: nid++,
+        date: day,
+        templateId: t.id,
+        isTemplate: false,
+        repeat: "none",
+        status: "Open",
+        completedAt: null,
+        completedBy: null,
+        carriedFrom: null,
+        dropped: false,
+        createdAt: nowISO(),
+        replies: [],
+      });
+    }
+  }
+  return added.length ? { ...prev, bulletin: [...prev.bulletin, ...added] } : prev;
+}
+
+export function resolveStaleBulletins(prev: DB): DB {
+  const casesById = new Map(prev.cases.map((c) => [c.id, c]));
+  let rid = prev.bulletin.reduce((m, b) => Math.max(m, b.id, ...b.replies.map((r) => r.id)), 0) + 1;
+  let changed = false;
+  const bulletin = prev.bulletin.map((b) => {
+    if (b.caseId != null && b.status === "Open" && !b.isTemplate) {
+      const c = casesById.get(b.caseId);
+      if (!c || c.caseStatus !== "Active") {
+        changed = true;
+        return {
+          ...b,
+          status: "Done" as const,
+          completedAt: nowISO(),
+          completedBy: null,
+          replies: [...b.replies, { id: rid++, userId: b.issuedBy, text: "Case closed — directive resolved automatically, no action needed.", at: nowISO() }],
+        };
+      }
+    }
+    return b;
+  });
+  return changed ? { ...prev, bulletin } : prev;
 }
 
 interface StoreShape {

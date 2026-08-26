@@ -339,7 +339,22 @@ export function seedDb(): DB {
     { id: 5, date: daysAgoISO(1), issuedBy: 4, task: "Every valuation report older than 2 days gets chased with the valuer before EOD. Valuation Report stage is our biggest leak.", caseId: null, targets: [5, 6], status: "Done", completedAt: ts(0, 9), completedBy: 6, createdAt: ts(1, 6),
       replies: [{ id: 6, userId: 6, text: "Both chased — Grace Muthoni's report lands tomorrow morning, Lucia's invoice uploaded.", at: ts(1, 2) }] },
     { id: 6, date: daysAgoISO(1), issuedBy: 1, task: "Falcon Properties introduced 3 files this week — acknowledge each lead with a same-day WhatsApp. Agents remember speed.", caseId: null, targets: [5], status: "Done", completedAt: ts(1, 1), completedBy: 5, createdAt: ts(1, 8), replies: [] },
+    /* missed yesterday — still open, will surface as MISSED */
+    { id: 7, date: daysAgoISO(1), issuedBy: 2, task: "Reconcile the Ajman Bank login fees for last week's files and post the total in the group.", caseId: null, targets: [5, 6], status: "Open", completedAt: null, completedBy: null, createdAt: ts(1, 5), replies: [] },
+    /* carried forward from two days ago */
+    { id: 8, date: todayISO(), issuedBy: 1, task: "Get the ADCB rate-lock confirmation for the Al Mansoori file in writing — this is the third ask, escalate to the branch manager.", caseId: null, targets: [7], status: "Open", completedAt: null, completedBy: null, createdAt: ts(2, 4), carriedFrom: daysAgoISO(2), replies: [{ id: 7, userId: 7, text: "RM promised it by 2pm yesterday, nothing yet. Escalating now.", at: ts(0, 3) }] },
+    /* dropped, not done */
+    { id: 9, date: daysAgoISO(3), issuedBy: 2, task: "Re-type the old SPO checklist from the shared drive.", caseId: null, targets: [9], status: "Done", dropped: true, completedAt: ts(3, 1), completedBy: 2, createdAt: ts(3, 6), replies: [{ id: 8, userId: 2, text: "Dropped — superseded by the new checklist directive, ignore this one.", at: ts(3, 1) }] },
+    /* routine templates — materialized into a fresh instance every eligible morning */
+    { id: 10, date: daysAgoISO(6), issuedBy: 4, task: "Routine: clear your overdue chase list before EOD and mark each file's task done.", caseId: null, targets: [5, 6, 7, 8, 9], status: "Open", completedAt: null, completedBy: null, createdAt: ts(6, 8), replies: [], repeat: "weekdays", isTemplate: true },
+    { id: 11, date: daysAgoISO(6), issuedBy: 1, task: "Routine: post a one-line EOD update per active case in your book.", caseId: null, targets: [5, 6, 7, 8, 9], status: "Open", completedAt: null, completedBy: null, createdAt: ts(6, 7), replies: [], repeat: "daily", isTemplate: true },
   ];
+
+  /* a directive pinned to an already-booked case — will auto-resolve on load */
+  const bookedCase = cases.find((c) => c.caseStatus === "Closed");
+  if (bookedCase) {
+    bulletin.push({ id: 12, date: daysAgoISO(2), issuedBy: 3, task: "Chase the liability release letter for this file before the weekend.", caseId: bookedCase.id, targets: [7], status: "Open", completedAt: null, completedBy: null, createdAt: ts(2, 6), replies: [] });
+  }
 
   const mkCheck = (
     id: number, caseId: number | null, customerName: string, createdBy: number, createdAgo: number,
