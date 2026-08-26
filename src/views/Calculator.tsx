@@ -108,6 +108,13 @@ export default function Calculator() {
         ? { ...p.coBorrower, incomes: p.coBorrower.incomes.map((x) => (x.id === id ? { ...x, ...patch } : x)) }
         : p.coBorrower,
     }));
+  const patchCoLiab = (id: string, patch: Partial<LiabRow>) =>
+    setInput((p) => ({
+      ...p,
+      coBorrower: p.coBorrower
+        ? { ...p.coBorrower, liabilities: p.coBorrower.liabilities.map((x) => (x.id === id ? { ...x, ...patch } : x)) }
+        : p.coBorrower,
+    }));
 
   const defaultLtv = defaultLtvPct(input.applicantType);
   const isCustomLtv = input.ltvPctChoice != null && !LTV_CHOICES.includes(input.ltvPctChoice);
@@ -487,7 +494,7 @@ export default function Calculator() {
               {!input.coBorrower ? (
                 <button
                   className="btn btn-ghost btn-sm"
-                  onClick={() => up({ coBorrower: { name: "", incomes: [newIncomeRow(sourcePool[0], input.employment)], existingEmis: 0 } })}
+                  onClick={() => up({ coBorrower: { name: "", dob: "1992-01-15", incomes: [newIncomeRow(sourcePool[0], input.employment)], liabilities: [] } })}
                 >
                   <IPlus size={13} /> Add co-borrower (if applicable)
                 </button>
@@ -495,7 +502,7 @@ export default function Calculator() {
                 <div className="anim-fade-in">
                   <div className="flex items-center justify-between mb-2.5">
                     <span className="text-[11px] uppercase tracking-[0.12em] font-disp font-semibold" style={{ color: "var(--sky)" }}>
-                      Co-borrower · combined for DBR
+                      Co-borrower · combined for DBR · age limits the tenor
                     </span>
                     <button
                       className="text-[var(--ink-faint)] hover:text-[var(--coral)] transition-colors"
@@ -505,7 +512,7 @@ export default function Calculator() {
                       <ITrash size={14} />
                     </button>
                   </div>
-                  <div className="grid grid-cols-1 sm:grid-cols-[1fr_170px] gap-2 mb-2">
+                  <div className="grid grid-cols-1 sm:grid-cols-[1fr_170px_110px] gap-2 mb-2">
                     <div>
                       <label className="label">Co-borrower name</label>
                       <input
@@ -516,8 +523,19 @@ export default function Calculator() {
                       />
                     </div>
                     <div>
-                      <label className="label">Their existing EMIs</label>
-                      <NumIn value={input.coBorrower.existingEmis} onChange={(n) => up({ coBorrower: { ...input.coBorrower!, existingEmis: n } })} step={100} />
+                      <label className="label">Date of birth</label>
+                      <input
+                        className="input mono"
+                        type="date"
+                        value={input.coBorrower.dob}
+                        onChange={(e) => e.target.value && up({ coBorrower: { ...input.coBorrower!, dob: e.target.value } })}
+                      />
+                    </div>
+                    <div>
+                      <label className="label">Age now</label>
+                      <div className="mono text-[15px] font-semibold pt-1.5" style={{ color: r.tenorLimitedBy === "co-borrower" ? "var(--coral)" : "var(--ink-dim)" }}>
+                        {r.coAgeYears} yrs{r.tenorLimitedBy === "co-borrower" && " ◂ caps tenor"}
+                      </div>
                     </div>
                   </div>
                   <div className="space-y-2">
@@ -564,11 +582,74 @@ export default function Calculator() {
                       <IPlus size={13} /> Add co-borrower income
                     </button>
                     <div className="text-[12.5px]">
-                      Co-borrower income <strong className="mono text-[14px]" style={{ color: "var(--sky)" }}>{fmtAED(r.coIncome)}</strong>
+                      Co-borrower income <strong className="mono text-[14px]" style={{ color: "var(--sky)" }}>{fmtAED(r.coIncome)}</strong>/mo
                     </div>
                   </div>
-                  <p className="text-[11px] text-[var(--ink-faint)] mt-2 mb-0">
-                    Counted in the eligibility calculation only — the co-borrower is never written to the case file.
+
+                  {/* co-borrower liabilities — combined with the applicant's for DBR */}
+                  <div className="mt-3 pt-3" style={{ borderTop: "1px dashed color-mix(in srgb, var(--sky) 30%, transparent)" }}>
+                    <div className="text-[10.5px] uppercase tracking-[0.1em] font-disp font-semibold mb-2" style={{ color: "var(--sky)" }}>
+                      Their liabilities
+                    </div>
+                    {input.coBorrower.liabilities.length === 0 && (
+                      <p className="text-[12px] text-[var(--ink-faint)] m-0 mb-2">No liabilities declared for the co-borrower.</p>
+                    )}
+                    <div className="space-y-2">
+                      {input.coBorrower.liabilities.map((l) => (
+                        <div key={l.id} className="rounded-lg p-2.5 anim-fade-in" style={{ background: "color-mix(in srgb, var(--sky) 5%, transparent)", border: "1px solid color-mix(in srgb, var(--sky) 18%, transparent)" }}>
+                          <div className="grid grid-cols-[1fr_130px_130px] gap-2">
+                            <input className="input" value={l.name} onChange={(e) => patchCoLiab(l.id, { name: e.target.value })} placeholder="Liability name" />
+                            <select className="select" value={l.type} onChange={(e) => patchCoLiab(l.id, { type: e.target.value as LiabRow["type"] })}>
+                              {LIAB_TYPES.map((t) => <option key={t}>{t}</option>)}
+                            </select>
+                            <select className="select" value={l.method} onChange={(e) => patchCoLiab(l.id, { method: e.target.value as LiabRow["method"] })}>
+                              {LIAB_METHODS.map((m) => <option key={m}>{m}</option>)}
+                            </select>
+                          </div>
+                          <div className="grid grid-cols-[1fr_1fr_110px_30px] gap-2 mt-2 items-center">
+                            <div>
+                              <label className="label" style={{ marginBottom: 3 }}>{l.type === "Credit Card" || l.type === "Overdraft" ? "Limit / outstanding" : "Outstanding"}</label>
+                              <NumIn value={l.limitOrOutstanding} onChange={(n) => patchCoLiab(l.id, { limitOrOutstanding: n })} step={1000} />
+                            </div>
+                            <div>
+                              <label className="label" style={{ marginBottom: 3 }}>Monthly EMI {l.method.startsWith("5%") ? "(ignored)" : ""}</label>
+                              <NumIn value={l.monthlyEmi} onChange={(n) => patchCoLiab(l.id, { monthlyEmi: n })} step={100} />
+                            </div>
+                            <div className="text-right">
+                              <div className="text-[10px] uppercase tracking-[0.08em] text-[var(--ink-faint)] font-disp font-semibold">Assessed</div>
+                              <div className="mono text-[13px]" style={{ color: "var(--coral)" }}>{fmtAED(liabilityEmi(l))}</div>
+                            </div>
+                            <button className="text-[var(--ink-faint)] hover:text-[var(--coral)] transition-colors justify-self-center" title="Remove liability"
+                              onClick={() =>
+                                setInput((p) => ({
+                                  ...p,
+                                  coBorrower: p.coBorrower ? { ...p.coBorrower, liabilities: p.coBorrower.liabilities.filter((x) => x.id !== l.id) } : p.coBorrower,
+                                }))
+                              }>
+                              <ITrash size={14} />
+                            </button>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                    <div className="flex items-center justify-between mt-2.5">
+                      <button className="btn btn-ghost btn-sm"
+                        onClick={() =>
+                          setInput((p) => ({
+                            ...p,
+                            coBorrower: p.coBorrower ? { ...p.coBorrower, liabilities: [...p.coBorrower.liabilities, newLiabRow()] } : p.coBorrower,
+                          }))
+                        }>
+                        <IPlus size={13} /> Add co-borrower liability
+                      </button>
+                      <div className="text-[12.5px]">
+                        Co-borrower EMIs <strong className="mono text-[14px]" style={{ color: "var(--coral)" }}>{fmtAED(r.coEmis)}</strong>/mo
+                      </div>
+                    </div>
+                  </div>
+
+                  <p className="text-[11px] text-[var(--ink-faint)] mt-2.5 mb-0">
+                    Income, liabilities and age are combined into the eligibility calculation only — the co-borrower is never written to the case file.
                   </p>
                 </div>
               )}
@@ -1060,7 +1141,7 @@ function PreviewReport({
                   ["Applicant", inp.name || "—"],
                   ["Applicant type", `${inp.applicantType} · ${inp.employment}`],
                   ...(inp.coBorrower
-                    ? ([["Co-borrower", `${inp.coBorrower.name || "—"} · income ${fmtAED(res.coIncome)}/mo · EMIs ${fmtAED(inp.coBorrower.existingEmis)}/mo (combined)`]] as [string, string][])
+                    ? ([["Co-borrower", `${inp.coBorrower.name || "—"} · age ${res.coAgeYears} · income ${fmtAED(res.coIncome)}/mo · EMIs ${fmtAED(res.coEmis)}/mo (combined)`]] as [string, string][])
                     : []),
                   ["Property value", fmtAED(inp.propertyValue)],
                   ["Bank valuation", inp.valuation ? fmtAED(inp.valuation) : "Not available"],
@@ -1079,6 +1160,12 @@ function PreviewReport({
                       ] as [string, string][])
                     : []),
                   ["Existing monthly liabilities", `${fmtAED(res.existingEmis)}${inp.coBorrower ? " (combined)" : ""}`],
+                  ...(inp.coBorrower
+                    ? ([
+                        ["  · Applicant EMIs", fmtAED(res.ownEmis)],
+                        ["  · Co-borrower EMIs", fmtAED(res.coEmis)],
+                      ] as [string, string][])
+                    : []),
                   ["Current DBR", fmtPct(res.currentDbr)],
                   ["Maximum DBR (CBUAE)", fmtPct(res.maxDbr)],
                   ["Residual DBR", fmtPct(res.residualDbr)],
@@ -1197,11 +1284,6 @@ function PreviewReport({
                           <td className="num">{fmtAED(incomeMonthly(row))}</td>
                         </tr>
                       ))}
-                      <tr>
-                        <td colSpan={2}>Co-borrower existing EMIs</td>
-                        <td className="num" colSpan={2}></td>
-                        <td className="num">{fmtAED(inp.coBorrower.existingEmis)}</td>
-                      </tr>
                     </tbody>
                     <tfoot>
                       <tr>
@@ -1213,7 +1295,7 @@ function PreviewReport({
                 </>
               )}
 
-              <div className="paper-sec">Liability Breakdown</div>
+              <div className="paper-sec">Liability Breakdown — Applicant</div>
               <table className="paper-tbl">
                 <thead>
                   <tr>
@@ -1240,18 +1322,59 @@ function PreviewReport({
                 </tbody>
                 <tfoot>
                   <tr>
-                    <td colSpan={4}>Existing monthly liabilities</td>
-                    <td className="num">{fmtAED(res.existingEmis)}</td>
+                    <td colSpan={4}>Applicant existing EMIs</td>
+                    <td className="num">{fmtAED(res.ownEmis)}</td>
                   </tr>
                 </tfoot>
               </table>
+
+              {inp.coBorrower && (
+                <>
+                  <div className="paper-sec">Liability Breakdown — Co-borrower{inp.coBorrower.name ? ` (${inp.coBorrower.name})` : ""}</div>
+                  <table className="paper-tbl">
+                    <thead>
+                      <tr>
+                        <th>Liability</th>
+                        <th>Type</th>
+                        {numTh("Limit / Outstanding")}
+                        <th>Method</th>
+                        {numTh("Assessed EMI")}
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {inp.coBorrower.liabilities.length === 0 && (
+                        <tr><td colSpan={5}>No liabilities declared</td></tr>
+                      )}
+                      {inp.coBorrower.liabilities.map((row) => (
+                        <tr key={row.id}>
+                          <td>{row.name}</td>
+                          <td>{row.type}</td>
+                          <td className="num">{fmtAED(row.limitOrOutstanding)}</td>
+                          <td>{row.method}</td>
+                          <td className="num">{fmtAED(liabilityEmi(row))}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                    <tfoot>
+                      <tr>
+                        <td colSpan={4}>Co-borrower existing EMIs</td>
+                        <td className="num">{fmtAED(res.coEmis)}</td>
+                      </tr>
+                      <tr>
+                        <td colSpan={4}>Combined existing EMIs</td>
+                        <td className="num">{fmtAED(res.existingEmis)}</td>
+                      </tr>
+                    </tfoot>
+                  </table>
+                </>
+              )}
 
               <div className="paper-sec">Rate, Stress & Tenor</div>
               <Pkv
                 rows={[
                   ["Assessment basis", `${fmtPct(res.actualRate)} actual + ${res.loadFactor.toFixed(2)}% load = ${fmtPct(res.assessmentRate)} assessment`],
                   ["Age calculation", `${res.ageNowYears}y now + ${inp.marginMonths}m margin → final age ${inp.finalAge} → ${tenorLabel(res.remainingMonths)} available`],
-                  ["Tenor used", `${tenorLabel(res.maxTenorMonths)}${inp.tenorOverrideMonths ? " (manual override)" : " (age-constrained)"}`],
+                  ["Tenor used", `${tenorLabel(res.maxTenorMonths)}${inp.tenorOverrideMonths ? " (manual override)" : res.tenorLimitedBy === "co-borrower" ? ` (limited by co-borrower, age ${res.coAgeYears})` : " (age-constrained)"}`],
                   ["LTV applied", `${res.ltvPct}% — ${inp.applicantType}${res.calcBasis > 5000000 ? ", above AED 5M band" : ", up to AED 5M band"}`],
                 ]}
               />

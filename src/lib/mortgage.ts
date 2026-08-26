@@ -33,8 +33,9 @@ export interface LiabRow {
 
 export interface CoBorrower {
   name: string;
+  dob: string; // age limits the tenor, exactly like the applicant
   incomes: IncomeRow[];
-  existingEmis: number;
+  liabilities: LiabRow[];
 }
 
 export interface MortgageInput {
@@ -94,6 +95,8 @@ export interface MortgageResult {
   actualLtv: number;
   dbrAfter: number;
   newEmi: number;
+  coAgeYears: number;
+  tenorLimitedBy: "applicant" | "co-borrower" | "tenor cap" | null;
   trail: string[];
   notes: string[];
 }
@@ -176,16 +179,33 @@ export function computeMortgage(inp: MortgageInput): MortgageResult {
   const ageNowYears = Math.floor(ageMonths / 12);
   const ageAfterMarginMonths = ageMonths + Math.max(0, inp.marginMonths);
   const remainingMonths = Math.max(0, inp.finalAge * 12 - ageAfterMarginMonths);
+
+  /* co-borrower age is a tenor factor too: the loan ends when the FIRST borrower
+     reaches the final age, so the shorter remaining period binds */
+  const coAgeMonths = inp.coBorrower ? diffMonths(inp.coBorrower.dob) : null;
+  const coAgeYears = coAgeMonths != null ? Math.floor(coAgeMonths / 12) : 0;
+  const coRemainingMonths =
+    coAgeMonths != null ? Math.max(0, inp.finalAge * 12 - (coAgeMonths + Math.max(0, inp.marginMonths))) : null;
+
   const cap = inp.tenorOverrideMonths && inp.tenorOverrideMonths > 0 ? inp.tenorOverrideMonths : CBUAE_MAX_TENOR_YEARS * 12;
-  const maxTenorMonths = Math.min(cap, remainingMonths);
+  let maxTenorMonths = Math.min(cap, remainingMonths);
+  let tenorLimitedBy: MortgageResult["tenorLimitedBy"] =
+    cap < remainingMonths ? "tenor cap" : "applicant";
+  if (coRemainingMonths != null && coRemainingMonths < maxTenorMonths) {
+    maxTenorMonths = coRemainingMonths;
+    tenorLimitedBy = "co-borrower";
+  }
+  if (inp.tenorOverrideMonths) tenorLimitedBy = null;
   if (remainingMonths <= 0) notes.push("Applicant is at or past the final age — no age-based tenor remains.");
-  if (inp.tenorOverrideMonths) notes.push(`Tenor manually set to ${tenorLabel(maxTenorMonths)} (overrides age limit).`);
+  if (coRemainingMonths != null && tenorLimitedBy === "co-borrower")
+    notes.push(`Tenor capped at ${tenorLabel(maxTenorMonths)} by the co-borrower's age (${coAgeYears} yrs) — the loan must end when the first borrower reaches the final age.`);
+  if (inp.tenorOverrideMonths) notes.push(`Tenor manually set to ${tenorLabel(maxTenorMonths)} (overrides age limits).`);
 
   const ownIncome = inp.incomes.reduce((s, r) => s + incomeMonthly(r), 0);
   const coIncome = inp.coBorrower ? inp.coBorrower.incomes.reduce((s, r) => s + incomeMonthly(r), 0) : 0;
   const eligibleIncome = ownIncome + coIncome;
   const ownEmis = inp.liabilities.reduce((s, r) => s + liabilityEmi(r), 0);
-  const coEmis = inp.coBorrower?.existingEmis ?? 0;
+  const coEmis = inp.coBorrower ? inp.coBorrower.liabilities.reduce((s, r) => s + liabilityEmi(r), 0) : 0;
   const existingEmis = ownEmis + coEmis;
 
   const currentDbr = eligibleIncome > 0 ? (existingEmis / eligibleIncome) * 100 : 100;
@@ -232,7 +252,12 @@ export function computeMortgage(inp: MortgageInput): MortgageResult {
     `PV at ${assessmentRate.toFixed(2)}% over ${tenorLabel(maxTenorMonths)} → DBR MPBF ${fmtAED(dbrMpbf)}`,
     `LTV: ${fmtAED(calcBasis)} × ${ltvPct}% (${inp.ltvPctChoice != null ? "selected" : `default · ${inp.applicantType}`}) → ${fmtAED(ltvMpbf)}`,
   ];
-  if (inp.coBorrower) trail.push(`Combined income: applicant ${fmtAED(ownIncome)} + co-borrower ${fmtAED(coIncome)} = ${fmtAED(eligibleIncome)}; co-borrower EMIs ${fmtAED(coEmis)} added`);
+  if (inp.coBorrower) {
+    trail.push(`Combined income: applicant ${fmtAED(ownIncome)} + co-borrower ${fmtAED(coIncome)} = ${fmtAED(eligibleIncome)}/mo`);
+    trail.push(`Combined liabilities: applicant ${fmtAED(ownEmis)} + co-borrower ${fmtAED(coEmis)} = ${fmtAED(existingEmis)}/mo`);
+    if (tenorLimitedBy === "co-borrower")
+      trail.push(`Tenor: ${tenorLabel(remainingMonths)} applicant vs ${tenorLabel(coRemainingMonths ?? 0)} co-borrower → ${tenorLabel(maxTenorMonths)} used (first to reach final age binds)`);
+  }
   if (multiplierCap != null) trail.push(`Income multiplier: ${inp.multiplierX}× annual eligible → cap ${fmtAED(multiplierCap)}`);
   trail.push(`Final MPBF = MIN(${caps.map((c) => `${c.label} ${fmtAED(c.v)}`).join(", ")})`);
 
@@ -242,7 +267,8 @@ export function computeMortgage(inp: MortgageInput): MortgageResult {
     currentDbr, maxDbr: MAX_DBR, residualDbr, availableEmi,
     actualRate: inp.actualRate, loadFactor: inp.loadFactor, assessmentRate,
     calcBasis, basisLabel, ltvPct, dbrMpbf, ltvMpbf, multiplierCap, requested: inp.requested,
-    finalMpbf, limitedBy: limiting.label, downPayment, actualLtv, dbrAfter, newEmi, trail, notes,
+    finalMpbf, limitedBy: limiting.label, downPayment, actualLtv, dbrAfter, newEmi,
+    coAgeYears, tenorLimitedBy, trail, notes,
   };
 }
 
@@ -252,13 +278,16 @@ export const cloneInput = (i: MortgageInput): MortgageInput => JSON.parse(JSON.s
 
 export function scenarioCardsPct(inp: MortgageInput, pct: number): MortgageInput {
   const c = cloneInput(inp);
-  c.liabilities = c.liabilities.map((l) => (l.type === "Credit Card" ? { ...l, limitOrOutstanding: l.limitOrOutstanding * pct } : l));
+  const scale = (ls: LiabRow[]) => ls.map((l) => (l.type === "Credit Card" ? { ...l, limitOrOutstanding: l.limitOrOutstanding * pct } : l));
+  c.liabilities = scale(c.liabilities);
+  if (c.coBorrower) c.coBorrower = { ...c.coBorrower, liabilities: scale(c.coBorrower.liabilities) };
   return c;
 }
 
 export function scenarioRemoveCards(inp: MortgageInput): MortgageInput {
   const c = cloneInput(inp);
   c.liabilities = c.liabilities.filter((l) => l.type !== "Credit Card");
+  if (c.coBorrower) c.coBorrower = { ...c.coBorrower, liabilities: c.coBorrower.liabilities.filter((l) => l.type !== "Credit Card") };
   return c;
 }
 

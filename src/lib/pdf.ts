@@ -232,7 +232,9 @@ export function generateMortgagePdf(
   kv([
     ["Applicant", (inp.name || "—") + coName],
     ["Applicant type", `${inp.applicantType} · ${inp.employment}`],
-    ...(inp.coBorrower ? ([["Co-borrower", inp.coBorrower.name || "—"]] as [string, string][]) : []),
+    ...(inp.coBorrower
+      ? ([["Co-borrower", `${inp.coBorrower.name || "—"} · age ${res.coAgeYears} · income ${fmtAED(res.coIncome)}/mo · EMIs ${fmtAED(res.coEmis)}/mo (combined)`]] as [string, string][])
+      : []),
     ["Property value", fmtAED(inp.propertyValue)],
     ["Bank valuation", inp.valuation ? fmtAED(inp.valuation) : "Not available"],
     ["Calculation basis", `${fmtAED(res.calcBasis)} (${res.basisLabel})`],
@@ -250,6 +252,12 @@ export function generateMortgagePdf(
         ] as [string, string][])
       : []),
     ["Existing monthly liabilities", `${fmtAED(res.existingEmis)}${inp.coBorrower ? " (combined)" : ""}`],
+    ...(inp.coBorrower
+      ? ([
+          ["  · Applicant EMIs", fmtAED(res.ownEmis)],
+          ["  · Co-borrower EMIs", fmtAED(res.coEmis)],
+        ] as [string, string][])
+      : []),
     ["Current DBR", fmtPct(res.currentDbr)],
     ["Maximum DBR", fmtPct(res.maxDbr)],
     ["Residual DBR", fmtPct(res.residualDbr)],
@@ -335,20 +343,34 @@ export function generateMortgagePdf(
     { header: "Assessed EMI", width: 81, align: "right" },
   ];
 
-  section("Liability Breakdown");
+  section("Liability Breakdown — Applicant");
   wtable(
     liabCols,
     inp.liabilities.length
       ? inp.liabilities.map((r) => [r.name, r.type, fmtAED(r.limitOrOutstanding), r.method, fmtAED(liabilityEmi(r))])
       : [["No liabilities declared", "", "", "", ""]],
-    [["Existing monthly liabilities", "", "", "", fmtAED(res.ownEmis)]]
+    [["Applicant existing EMIs", "", "", "", fmtAED(res.ownEmis)]]
   );
+
+  if (inp.coBorrower) {
+    section(`Liability Breakdown — Co-borrower${inp.coBorrower.name ? ` (${inp.coBorrower.name})` : ""}`);
+    wtable(
+      liabCols,
+      inp.coBorrower.liabilities.length > 0
+        ? inp.coBorrower.liabilities.map((r) => [r.name, r.type, fmtAED(r.limitOrOutstanding), r.method, fmtAED(liabilityEmi(r))])
+        : [["No liabilities declared", "", "", "", ""]],
+      [
+        ["Co-borrower existing EMIs", "", "", "", fmtAED(res.coEmis)],
+        ["Combined existing EMIs", "", "", "", fmtAED(res.existingEmis)],
+      ]
+    );
+  }
 
   section("Rate, Stress & Tenor");
   kv([
     ["Rate basis", `${fmtPct(res.actualRate)} actual + ${res.loadFactor.toFixed(2)}% load = ${fmtPct(res.assessmentRate)} assessment`],
     ["Age calculation", `${res.ageNowYears}y + ${inp.marginMonths}m margin → final age ${inp.finalAge} → ${tenorLabel(res.remainingMonths)} available`],
-    ["Tenor used", tenorLabel(res.maxTenorMonths)],
+    ["Tenor used", `${tenorLabel(res.maxTenorMonths)}${res.tenorLimitedBy === "co-borrower" ? ` (limited by co-borrower, age ${res.coAgeYears})` : ""}`],
   ]);
   y += 6;
 
