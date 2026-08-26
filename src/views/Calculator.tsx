@@ -3,8 +3,8 @@ import type { ReactNode } from "react";
 import { useStore } from "../lib/store";
 import type { AffordabilityCheck } from "../lib/types";
 import {
-  FREQUENCIES, LIAB_METHODS, LIAB_TYPES, SALARIED_SOURCES, SE_SOURCES,
-  cloneInput, computeMortgage, defaultInput, emiFor, fmtAED, fmtPct, incomeMonthly, liabilityEmi,
+  CO_SOURCES, FREQUENCIES, LIAB_METHODS, LIAB_TYPES, LTV_CHOICES, SALARIED_SOURCES, SE_SOURCES,
+  cloneInput, computeMortgage, defaultInput, defaultLtvPct, emiFor, fmtAED, fmtPct, incomeMonthly, liabilityEmi,
   newIncomeRow, newLiabRow, scenarioCardNewLimit, scenarioCardsPct, scenarioIncomePct,
   scenarioIncomeRemove, scenarioRate, scenarioRemoveCards, scenarioRemoveLiab, scenarioTenor, tenorLabel,
 } from "../lib/mortgage";
@@ -13,6 +13,7 @@ import { generateMortgagePdf } from "../lib/pdf";
 import type { PdfScenarioTable } from "../lib/pdf";
 import { relTime } from "../lib/format";
 import { Avatar, Chip } from "../components/ui";
+import { ConfirmModal } from "../components/bits";
 import { useCountUp } from "../components/charts";
 import { IArrowR, ICalc, IDownload, IEye, IPlus, ITrash, IX } from "../components/icons";
 
@@ -71,6 +72,7 @@ export default function Calculator() {
   const { db, session, nav, toast, userById, saveMortgageCheck, createCaseFromCheck, linkCheckToCase } = useStore();
   const [input, setInput] = useState<MortgageInput>(defaultInput);
   const [savedId, setSavedId] = useState<number | null>(null);
+  const [confirmCase, setConfirmCase] = useState(false);
   const [preview, setPreview] = useState<{ input: MortgageInput; res: MortgageResult; tables: PdfScenarioTable[]; by: string } | null>(null);
   const [whif, setWhif] = useState<WhifTab>("liab");
   const [cardId, setCardId] = useState("");
@@ -97,6 +99,18 @@ export default function Calculator() {
     setInput((p) => ({ ...p, incomes: p.incomes.map((x) => (x.id === id ? { ...x, ...patch } : x)) }));
   const patchLiab = (id: string, patch: Partial<LiabRow>) =>
     setInput((p) => ({ ...p, liabilities: p.liabilities.map((x) => (x.id === id ? { ...x, ...patch } : x)) }));
+
+  /* ---- co-borrower (DBR only, never written to a case) ---- */
+  const patchCoIncome = (id: string, patch: Partial<IncomeRow>) =>
+    setInput((p) => ({
+      ...p,
+      coBorrower: p.coBorrower
+        ? { ...p.coBorrower, incomes: p.coBorrower.incomes.map((x) => (x.id === id ? { ...x, ...patch } : x)) }
+        : p.coBorrower,
+    }));
+
+  const defaultLtv = defaultLtvPct(input.applicantType);
+  const isCustomLtv = input.ltvPctChoice != null && !LTV_CHOICES.includes(input.ltvPctChoice);
 
   /* ---------------- scenarios ---------------- */
 
@@ -181,7 +195,7 @@ export default function Calculator() {
     toast("success", "Check saved to the audit trail.");
   };
 
-  const onOpenCase = () => {
+  const doCreateCase = () => {
     const payload = JSON.stringify({ v: 1, input });
     const id = saveMortgageCheck(input.name || "Unnamed applicant", input.whatsapp, payload, summaryFor());
     const check: AffordabilityCheck = {
@@ -202,6 +216,8 @@ export default function Calculator() {
       nav({ name: "case", id: c.id });
     }
   };
+
+  const onOpenCase = () => setConfirmCase(true);
 
   const buildScenarioTables = (): PdfScenarioTable[] => {
     const liabRows = runScenarios(liabScenarios);
@@ -325,9 +341,41 @@ export default function Calculator() {
                 <NumIn value={input.requested} onChange={(n) => up({ requested: n })} step={50000} />
               </div>
             </div>
+
+            <div className="mt-3">
+              <label className="label">LTV applied — default {defaultLtv}% for {input.applicantType}</label>
+              <div className="flex flex-wrap items-center gap-1.5">
+                <button type="button" className="chip transition-all"
+                  style={input.ltvPctChoice == null ? { background: "rgba(242,176,76,0.14)", borderColor: "var(--amber)", color: "var(--amber)" } : { background: "var(--bg2)", borderColor: "var(--line)", color: "var(--ink-faint)" }}
+                  onClick={() => up({ ltvPctChoice: null })}>
+                  Default {defaultLtv}%
+                </button>
+                {LTV_CHOICES.map((v) => (
+                  <button key={v} type="button" className="chip transition-all"
+                    style={input.ltvPctChoice === v ? { background: "rgba(242,176,76,0.14)", borderColor: "var(--amber)", color: "var(--amber)" } : { background: "var(--bg2)", borderColor: "var(--line)", color: "var(--ink-faint)" }}
+                    onClick={() => up({ ltvPctChoice: v })}>
+                    {v}%
+                  </button>
+                ))}
+                <button type="button" className="chip transition-all"
+                  style={isCustomLtv ? { background: "rgba(242,176,76,0.14)", borderColor: "var(--amber)", color: "var(--amber)" } : { background: "var(--bg2)", borderColor: "var(--line)", color: "var(--ink-faint)" }}
+                  onClick={() => up({ ltvPctChoice: isCustomLtv ? input.ltvPctChoice : defaultLtv })}>
+                  Custom
+                </button>
+                {isCustomLtv && (
+                  <span className="flex items-center gap-1.5 anim-fade-in">
+                    <input className="input mono" style={{ width: 84, padding: "4px 8px" }} type="number" min={10} max={95} step={1}
+                      value={input.ltvPctChoice ?? ""}
+                      onChange={(e) => up({ ltvPctChoice: Math.min(95, Math.max(10, Number(e.target.value) || 0)) })} />
+                    <span className="text-[12px] text-[var(--ink-faint)]">%</span>
+                  </span>
+                )}
+              </div>
+            </div>
+
             <p className="text-[12px] text-[var(--ink-dim)] mt-3 mb-0 rounded-lg px-3 py-2" style={{ background: "rgba(232,241,239,0.035)" }}>
               Calculation basis: <strong className="mono">{fmtAED(r.calcBasis)}</strong>
-              <span className="text-[var(--ink-faint)]"> — {r.basisLabel}. LTV band {r.ltvPct}% for {input.applicantType}{r.calcBasis > 5000000 ? " (above AED 5M)" : ""}.</span>
+              <span className="text-[var(--ink-faint)]"> — {r.basisLabel}. LTV {r.ltvPct}% ({input.ltvPctChoice != null ? "selected" : "default"}) for {input.applicantType}.</span>
             </p>
           </Section>
 
@@ -708,6 +756,22 @@ export default function Calculator() {
           onPdf={() => generateMortgagePdf(preview.input, preview.res, preview.tables, preview.by)}
         />
       )}
+
+      <ConfirmModal
+        open={confirmCase}
+        onClose={() => setConfirmCase(false)}
+        tone="mint"
+        title="Open a case from this check?"
+        body={
+          <span>
+            This will create a new pipeline case for <strong>{input.name.trim() || "Unnamed applicant"}</strong> with a loan
+            amount of <strong>{fmtAED(r.finalMpbf)}</strong> (the final MPBF). The saved eligibility check is attached to it for
+            audit. No case is created until you confirm.
+          </span>
+        }
+        confirmLabel="Create case"
+        onConfirm={doCreateCase}
+      />
     </div>
   );
 }

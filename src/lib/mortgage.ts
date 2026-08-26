@@ -31,6 +31,12 @@ export interface LiabRow {
   method: LiabMethod;
 }
 
+export interface CoBorrower {
+  name: string;
+  incomes: IncomeRow[];
+  existingEmis: number;
+}
+
 export interface MortgageInput {
   name: string;
   whatsapp: string;
@@ -42,7 +48,9 @@ export interface MortgageInput {
   propertyValue: number;
   valuation: number | null;
   requested: number;
+  ltvPctChoice: number | null; // null = default for applicant type
   incomes: IncomeRow[];
+  coBorrower: CoBorrower | null; // combined for DBR only — never written to a case
   liabilities: LiabRow[];
   actualRate: number;
   loadFactor: number;
@@ -51,13 +59,21 @@ export interface MortgageInput {
   tenorOverrideMonths: number | null;
 }
 
+export const LTV_CHOICES = [60, 70, 80, 85];
+export const defaultLtvPct = (t: ApplicantType): number => (t === "UAE National" ? 85 : 80);
+export const CO_SOURCES = ["Basic Salary", "Other Allowance", "Rental Income", "Business Income", "Other Income"];
+
 export interface MortgageResult {
   ageNowYears: number;
   ageAfterMarginMonths: number;
   remainingMonths: number;
   maxTenorMonths: number;
   eligibleIncome: number;
+  ownIncome: number;
+  coIncome: number;
   existingEmis: number;
+  ownEmis: number;
+  coEmis: number;
   currentDbr: number;
   maxDbr: number;
   residualDbr: number;
@@ -96,8 +112,9 @@ export function defaultInput(): MortgageInput {
   return {
     name: "", whatsapp: "", applicantType: "Expatriate", employment: "Salaried",
     dob: "1990-01-15", finalAge: 60, marginMonths: 2,
-    propertyValue: 1500000, valuation: null, requested: 1200000,
+    propertyValue: 1500000, valuation: null, requested: 1200000, ltvPctChoice: null,
     incomes: [newIncomeRow("Basic Salary")],
+    coBorrower: null,
     liabilities: [],
     actualRate: 3.99, loadFactor: 1.5, stressOverride: null, multiplierX: 0, tenorOverrideMonths: null,
   };
@@ -150,11 +167,6 @@ export const liabilityEmi = (r: LiabRow): number => {
   }
 };
 
-const LTV_BANDS: Record<ApplicantType, [number, number]> = {
-  "UAE National": [85, 75],
-  Expatriate: [80, 70],
-};
-
 /* ---------------- main calculation ---------------- */
 
 export function computeMortgage(inp: MortgageInput): MortgageResult {
@@ -169,8 +181,12 @@ export function computeMortgage(inp: MortgageInput): MortgageResult {
   if (remainingMonths <= 0) notes.push("Applicant is at or past the final age — no age-based tenor remains.");
   if (inp.tenorOverrideMonths) notes.push(`Tenor manually set to ${tenorLabel(maxTenorMonths)} (overrides age limit).`);
 
-  const eligibleIncome = inp.incomes.reduce((s, r) => s + incomeMonthly(r), 0);
-  const existingEmis = inp.liabilities.reduce((s, r) => s + liabilityEmi(r), 0);
+  const ownIncome = inp.incomes.reduce((s, r) => s + incomeMonthly(r), 0);
+  const coIncome = inp.coBorrower ? inp.coBorrower.incomes.reduce((s, r) => s + incomeMonthly(r), 0) : 0;
+  const eligibleIncome = ownIncome + coIncome;
+  const ownEmis = inp.liabilities.reduce((s, r) => s + liabilityEmi(r), 0);
+  const coEmis = inp.coBorrower?.existingEmis ?? 0;
+  const existingEmis = ownEmis + coEmis;
 
   const currentDbr = eligibleIncome > 0 ? (existingEmis / eligibleIncome) * 100 : 100;
   const residualDbr = Math.max(0, MAX_DBR - currentDbr);
@@ -187,9 +203,11 @@ export function computeMortgage(inp: MortgageInput): MortgageResult {
       : "property value (valuation not lower)"
     : "property value (no valuation yet)";
 
-  const band = LTV_BANDS[inp.applicantType];
-  const ltvPct = calcBasis <= 5000000 ? band[0] : band[1];
+  const ltvDefault = defaultLtvPct(inp.applicantType);
+  const ltvPct = inp.ltvPctChoice ?? ltvDefault;
   const ltvMpbf = (calcBasis * ltvPct) / 100;
+  if (inp.ltvPctChoice != null && inp.ltvPctChoice !== ltvDefault)
+    notes.push(`LTV manually set to ${ltvPct}% (default for ${inp.applicantType} is ${ltvDefault}%).`);
 
   const dbrMpbf = pvFor(availableEmi, assessmentRate, maxTenorMonths);
   const multiplierCap = inp.multiplierX > 0 ? eligibleIncome * 12 * inp.multiplierX : null;
@@ -212,14 +230,16 @@ export function computeMortgage(inp: MortgageInput): MortgageResult {
     `${fmtPct(MAX_DBR)} max − ${fmtPct(currentDbr)} current = ${fmtPct(residualDbr)} residual DBR`,
     `Residual ${fmtPct(residualDbr)} → available EMI ${fmtAED(availableEmi)}/mo`,
     `PV at ${assessmentRate.toFixed(2)}% over ${tenorLabel(maxTenorMonths)} → DBR MPBF ${fmtAED(dbrMpbf)}`,
-    `LTV: ${fmtAED(calcBasis)} × ${ltvPct}% (${inp.applicantType}${calcBasis > 5000000 ? ", above 5M" : ""}) → ${fmtAED(ltvMpbf)}`,
+    `LTV: ${fmtAED(calcBasis)} × ${ltvPct}% (${inp.ltvPctChoice != null ? "selected" : `default · ${inp.applicantType}`}) → ${fmtAED(ltvMpbf)}`,
   ];
+  if (inp.coBorrower) trail.push(`Combined income: applicant ${fmtAED(ownIncome)} + co-borrower ${fmtAED(coIncome)} = ${fmtAED(eligibleIncome)}; co-borrower EMIs ${fmtAED(coEmis)} added`);
   if (multiplierCap != null) trail.push(`Income multiplier: ${inp.multiplierX}× annual eligible → cap ${fmtAED(multiplierCap)}`);
   trail.push(`Final MPBF = MIN(${caps.map((c) => `${c.label} ${fmtAED(c.v)}`).join(", ")})`);
 
   return {
     ageNowYears, ageAfterMarginMonths, remainingMonths, maxTenorMonths,
-    eligibleIncome, existingEmis, currentDbr, maxDbr: MAX_DBR, residualDbr, availableEmi,
+    eligibleIncome, ownIncome, coIncome, existingEmis, ownEmis, coEmis,
+    currentDbr, maxDbr: MAX_DBR, residualDbr, availableEmi,
     actualRate: inp.actualRate, loadFactor: inp.loadFactor, assessmentRate,
     calcBasis, basisLabel, ltvPct, dbrMpbf, ltvMpbf, multiplierCap, requested: inp.requested,
     finalMpbf, limitedBy: limiting.label, downPayment, actualLtv, dbrAfter, newEmi, trail, notes,
