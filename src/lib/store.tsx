@@ -269,9 +269,12 @@ export function StoreProvider({ children }: { children: ReactNode }) {
   const [toasts, setToasts] = useState<ToastMsg[]>([]);
   const toastId = useRef(0);
 
+  /* bulletin lifecycle: spawn routine instances for any day without one (capped, so a
+     returning user isn't flooded) and auto-resolve directives whose case has closed */
   useEffect(() => {
-    localStorage.setItem(DB_KEY, JSON.stringify(db));
-  }, [db]);
+    setDb((prev) => resolveStaleBulletins(spawnBulletinInstances(prev)));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   useEffect(() => {
     const onHash = () => setRoute(parseHash());
@@ -486,7 +489,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
           acts = logAct(acts, id, me?.id ?? 0, "Case booked", undefined, wonBank ?? before.wonBank ?? "—");
         if (state === "Lost") acts = logAct(acts, id, me?.id ?? 0, "Case marked lost", before.stage);
         if (state === "Active") acts = logAct(acts, id, me?.id ?? 0, "Case reopened", before.caseStatus);
-        return {
+        const next: DB = {
           ...prev,
           cases: prev.cases.map((c) =>
             c.id === id
@@ -502,6 +505,9 @@ export function StoreProvider({ children }: { children: ReactNode }) {
           ),
           activities: acts,
         };
+        /* the moment a case leaves the live pipeline, any open directives pinned to it
+           resolve themselves — no stale "chase this" items linger on a closed file */
+        return state === "Active" ? next : resolveStaleBulletins(next);
       });
     },
     [session]

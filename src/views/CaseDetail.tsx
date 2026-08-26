@@ -57,7 +57,9 @@ function DirectivesBanner({ c }: { c: LoanCase }) {
     | { kind: "bulletin"; key: string; b: BulletinItem };
 
   const instrs: Dir[] = db.instructions.filter((i) => i.caseId === c.id).map((i) => ({ kind: "instruction", key: `i${i.id}`, i }));
-  const bulls: Dir[] = db.bulletin.filter((b) => b.caseId === c.id).map((b) => ({ kind: "bulletin", key: `b${b.id}`, b }));
+  const bulls: Dir[] = db.bulletin
+    .filter((b) => b.caseId === c.id && !b.isTemplate && !b.dropped)
+    .map((b) => ({ kind: "bulletin", key: `b${b.id}`, b }));
   const all = [...instrs, ...bulls].sort((a, z) => {
     const ao = a.kind === "instruction" ? a.i.status : a.b.status;
     const zo = z.kind === "instruction" ? z.i.status : z.b.status;
@@ -104,6 +106,8 @@ function DirectivesBanner({ c }: { c: LoanCase }) {
                   <div className="flex flex-wrap items-baseline gap-x-2">
                     <span className="font-disp font-semibold text-[13px]">{issuer?.name ?? "—"}</span>
                     <Chip tone={isInstr ? "sky" : "amber"}>{isInstr ? "instruction" : "bulletin"}</Chip>
+                    {!isInstr && d.b.carriedFrom && <Chip tone="sky">carried from {fmtDate(d.b.carriedFrom)}</Chip>}
+                    {!isInstr && d.b.templateId && <Chip tone="slate">routine</Chip>}
                     <span className="mono text-[10.5px] text-[var(--ink-faint)]">{relTime(createdAt)}</span>
                     {isInstr && <DueChip dueISO={d.i.dueDate} />}
                   </div>
