@@ -39,7 +39,8 @@ export function generateMortgagePdf(
     now.getDate()
   ).padStart(2, "0")}-${(inp.name || "client").replace(/[^a-z0-9]/gi, "").slice(0, 6).toUpperCase() || "CLIENT"}`;
 
-  const header = (_page?: number) => {
+  const header = (newPage = false) => {
+    if (newPage) doc.addPage();
     doc.setFillColor(...INK);
     doc.rect(0, 0, W, 76, "F");
     doc.setFillColor(...AMBER);
@@ -226,7 +227,7 @@ export function generateMortgagePdf(
   const coName = inp.coBorrower?.name?.trim() ? ` + ${inp.coBorrower.name.trim()}` : "";
 
   /* ============ PAGE 1 — Eligibility summary ============ */
-  header(1);
+  header();
   section("Applicant & Property");
   kv([
     ["Applicant", (inp.name || "—") + coName],
@@ -294,7 +295,7 @@ export function generateMortgagePdf(
   ]);
 
   /* ============ PAGE 2 — Supporting calculation ============ */
-  header(2);
+  header(true);
   const incomeCols: TCol[] = [
     { header: "Source", width: 150 },
     { header: "Frequency", width: 82 },
@@ -393,7 +394,7 @@ export function generateMortgagePdf(
 
   const [liab, rate, tenor, income] = scenarios;
 
-  header(doc.getNumberOfPages() + 1);
+  header(true);
   section("What-If Analysis");
   doc.setFont("helvetica", "normal");
   doc.setFontSize(9);
@@ -414,7 +415,7 @@ export function generateMortgagePdf(
     const boxH = lines.length * 12.5 + 18;
     if (y + boxH > BOTTOM) {
       doc.addPage();
-      header(doc.getNumberOfPages());
+      header();
     }
     doc.setFillColor(251, 246, 236);
     doc.setDrawColor(...AMBER);
@@ -456,7 +457,7 @@ export function generateMortgagePdf(
   /* closing block — kept together on whichever page has room */
   if (y > BOTTOM - 130) {
     doc.addPage();
-    header(doc.getNumberOfPages());
+    header();
   }
   section("Basis & Disclaimer");
   doc.setFont("helvetica", "normal");
