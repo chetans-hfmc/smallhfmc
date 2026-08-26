@@ -430,10 +430,20 @@ html[data-theme="light"] .paper {
   font-weight: 700;
   letter-spacing: 0.14em;
   text-transform: uppercase;
-  color: #a86f1c;
-  margin: 24px 0 10px;
-  padding-bottom: 6px;
-  border-bottom: 1px solid #ece3cf;
+  color: #16232a;
+  margin: 24px 0 12px;
+  padding-bottom: 7px;
+  position: relative;
+}
+.paper-sec::after {
+  content: "";
+  position: absolute;
+  left: 0;
+  bottom: 0;
+  width: 24px;
+  height: 3px;
+  border-radius: 1px;
+  background: #c68a28;
 }
 .paper-sec:first-child { margin-top: 0; }
 
