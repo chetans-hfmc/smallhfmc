@@ -201,7 +201,7 @@ export default function Reports() {
         ) : (
           <div className="space-y-1.5 max-h-[300px] overflow-y-auto pr-1">
             {risky.map(({ c, s, nt }) => (
-              <button key={c.id} className="w-full flex items-center gap-3 text-left px-2.5 py-2 rounded-lg transition-colors hover:bg-[rgba(232,241,239,0.045)]" onClick={() => nav({ name: "case", id: c.id })}>
+              <button key={c.id} className="rowlink w-full flex items-center gap-3 text-left px-2.5 py-2 rounded-lg" onClick={() => nav({ name: "case", id: c.id })}>
                 <span className={s === "Overdue" ? "dot-overdue shrink-0" : "w-[7px] h-[7px] rounded-full shrink-0"} style={s === "At Risk" ? { background: "var(--amber)" } : undefined} />
                 <span className="min-w-0 flex-1">
                   <span className="mono text-[11.5px] block" style={{ color: "var(--amber)" }}>{c.caseNumber}</span>
@@ -231,7 +231,7 @@ export default function Reports() {
                         <span className="text-[var(--ink-faint)]"> · {fmtMoney(o.value)}</span>
                       </span>
                     </div>
-                    <div className="h-[6px] rounded-full overflow-hidden" style={{ background: "rgba(232,241,239,0.06)" }}>
+                    <div className="h-[6px] rounded-full overflow-hidden" style={{ background: "var(--track)" }}>
                       <div className="h-full rounded-full" style={{ width: `${(o.open / max) * 100}%`, background: o.od > 0 ? `linear-gradient(90deg, ${TONE_HEX.mint}, ${TONE_HEX.coral})` : TONE_HEX.mint, transition: "width 0.8s cubic-bezier(0.22,1,0.36,1)" }} />
                     </div>
                   </div>
@@ -256,7 +256,7 @@ export default function Reports() {
         ) : (
           <div className="space-y-1.5 max-h-[260px] overflow-y-auto pr-1">
             {noAction.map((c) => (
-              <button key={c.id} className="w-full flex items-center gap-3 text-left px-2.5 py-2 rounded-lg transition-colors hover:bg-[rgba(232,241,239,0.045)]" onClick={() => nav({ name: "case", id: c.id })}>
+              <button key={c.id} className="rowlink w-full flex items-center gap-3 text-left px-2.5 py-2 rounded-lg" onClick={() => nav({ name: "case", id: c.id })}>
                 <Chip tone="slate">{ageDays(c.createdAt)}d</Chip>
                 <span className="min-w-0 flex-1">
                   <span className="mono text-[11.5px] block" style={{ color: "var(--amber)" }}>{c.caseNumber}</span>
@@ -320,7 +320,7 @@ export default function Reports() {
               <div key={r.m} className="flex-1 flex flex-col items-center gap-1.5 h-full justify-end">
                 <div className="flex items-end gap-[3px] h-full w-full max-w-[56px] justify-center">
                   {[
-                    { v: r.opened, c: "rgba(232,241,239,0.25)" },
+                    { v: r.opened, c: "var(--neutral)" },
                     { v: r.won, c: TONE_HEX.mint },
                     { v: r.lost, c: TONE_HEX.coral },
                   ].map((seg, j) => (
@@ -448,7 +448,7 @@ export default function Reports() {
       >
         <div className="space-y-1.5 max-h-[280px] overflow-y-auto pr-1">
           {bankPerf.map((r) => (
-            <div key={r.b.id} className="flex items-center gap-3 px-2.5 py-2 rounded-lg" style={{ background: "rgba(232,241,239,0.02)" }}>
+            <div key={r.b.id} className="flex items-center gap-3 px-2.5 py-2 rounded-lg" style={{ background: "var(--tint)" }}>
               <span className="font-disp font-semibold text-[12.5px] w-[86px] shrink-0">{r.b.name}</span>
               <span className="mono text-[11.5px] text-[var(--ink-dim)]">{r.inProgress} live · {r.closed} booked</span>
               <span className="mono text-[11.5px] ml-auto">{fmtMoney(r.volume)}</span>

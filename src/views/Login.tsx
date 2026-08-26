@@ -56,6 +56,9 @@ export default function Login() {
   return (
     <div className="min-h-screen grid lg:grid-cols-[1.05fr_1fr]">
       <div className="app-bg" />
+      <div className="absolute top-4 right-4 z-10">
+        <ThemeToggle compact />
+      </div>
 
       {/* left: live picture of the business */}
       <div className="hidden lg:flex flex-col justify-center px-14 py-12 border-r relative overflow-hidden" style={{ borderColor: "var(--line-soft)" }}>

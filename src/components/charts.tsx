@@ -53,7 +53,7 @@ export function BarList({ items, unit = "" }: { items: BarItem[]; unit?: string 
               {it.sub ? <span className="text-[var(--ink-faint)] ml-1.5">{it.sub}</span> : null}
             </span>
           </div>
-          <div className="h-[7px] rounded-full bg-[rgba(232,241,239,0.06)] overflow-hidden">
+          <div className="h-[7px] rounded-full overflow-hidden" style={{ background: "var(--track)" }}>
             <div
               className="h-full rounded-full"
               style={{
@@ -86,7 +86,7 @@ export function Donut({ segments, size = 148, centerLabel }: { segments: DonutSe
     <div className="flex items-center gap-5">
       <div className="relative shrink-0" style={{ width: size, height: size }}>
         <svg width={size} height={size} viewBox="0 0 140 140">
-          <circle cx="70" cy="70" r={r} fill="none" stroke="rgba(232,241,239,0.07)" strokeWidth="13" />
+          <circle cx="70" cy="70" r={r} fill="none" stroke="var(--track)" strokeWidth="13" />
           {segments.map((s, i) => {
             const frac = s.value / total;
             const dash = frac * C;

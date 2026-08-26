@@ -18,7 +18,7 @@ function ReplyThread({ replies, onSend }: { replies: Reply[]; onSend: (text: str
       {replies.map((r) => (
         <div key={r.id} className="flex items-start gap-2 anim-fade-in">
           <Avatar name={userById(r.userId)?.name ?? "?"} size={22} />
-          <div className="min-w-0 flex-1 rounded-lg px-3 py-2" style={{ background: "rgba(232,241,239,0.035)", border: "1px solid var(--line-soft)" }}>
+          <div className="min-w-0 flex-1 rounded-lg px-3 py-2" style={{ background: "var(--tint)", border: "1px solid var(--line-soft)" }}>
             <div className="flex items-baseline gap-2">
               <span className="text-[12px] font-semibold">{userById(r.userId)?.name ?? "—"}</span>
               <span className="mono text-[10px] text-[var(--ink-faint)]">{relTime(r.at)}</span>

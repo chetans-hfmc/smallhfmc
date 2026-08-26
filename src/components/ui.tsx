@@ -1,18 +1,49 @@
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
 import type { ReactNode } from "react";
 import type { CaseStatus, Tone } from "../lib/types";
 import { STATUS_TONE, dueInfo, initials } from "../lib/format";
 import { useStore } from "../lib/store";
-import { IAlert, ICheck, IX } from "./icons";
+import { IAlert, ICheck, IMoon, ISun, IX } from "./icons";
+
+/* ---------------- theme toggle ---------------- */
+
+function readTheme(): "light" | "dark" {
+  return document.documentElement.dataset.theme === "dark" ? "dark" : "light";
+}
+
+export function ThemeToggle({ compact = false }: { compact?: boolean }) {
+  const [theme, setTheme] = useState<"light" | "dark">(readTheme);
+  const flip = () => {
+    const next = theme === "light" ? "dark" : "light";
+    setTheme(next);
+    document.documentElement.dataset.theme = next;
+    try {
+      localStorage.setItem("hfmc.theme", next);
+    } catch {
+      /* private mode */
+    }
+  };
+  return (
+    <button
+      className={`btn btn-ghost ${compact ? "btn-sm" : ""}`}
+      onClick={flip}
+      title={theme === "light" ? "Switch to dark mode" : "Switch to light mode"}
+      aria-label="Toggle color theme"
+    >
+      {theme === "light" ? <IMoon size={15} /> : <ISun size={15} />}
+      {!compact && <span>{theme === "light" ? "Dark" : "Light"}</span>}
+    </button>
+  );
+}
 
 /* ---------------- chips ---------------- */
 
 const CHIP_STYLES: Record<Tone, { fg: string; bg: string; bd: string }> = {
-  mint: { fg: "#43d69b", bg: "rgba(67,214,155,0.09)", bd: "rgba(67,214,155,0.32)" },
-  amber: { fg: "#f2b04c", bg: "rgba(242,176,76,0.10)", bd: "rgba(242,176,76,0.34)" },
-  coral: { fg: "#f27363", bg: "rgba(242,115,99,0.10)", bd: "rgba(242,115,99,0.36)" },
-  sky: { fg: "#57c2ea", bg: "rgba(87,194,234,0.10)", bd: "rgba(87,194,234,0.32)" },
-  slate: { fg: "#8ca6b0", bg: "rgba(140,166,176,0.09)", bd: "rgba(140,166,176,0.3)" },
+  mint: { fg: "var(--mint)", bg: "rgba(4,120,87,0.08)", bd: "rgba(4,120,87,0.3)" },
+  amber: { fg: "var(--amber)", bg: "rgba(180,83,9,0.08)", bd: "rgba(180,83,9,0.3)" },
+  coral: { fg: "var(--coral)", bg: "rgba(217,45,32,0.07)", bd: "rgba(217,45,32,0.3)" },
+  sky: { fg: "var(--sky)", bg: "rgba(3,105,161,0.08)", bd: "rgba(3,105,161,0.3)" },
+  slate: { fg: "var(--slate)", bg: "rgba(100,116,139,0.08)", bd: "rgba(100,116,139,0.3)" },
 };
 
 export function Chip({ tone, children, dot }: { tone: Tone; children: ReactNode; dot?: boolean }) {
@@ -160,7 +191,7 @@ export function EmptyState({ icon, title, body }: { icon: ReactNode; title: stri
   return (
     <div className="flex flex-col items-center justify-center text-center py-12 px-6">
       <div className="w-12 h-12 rounded-xl flex items-center justify-center mb-3"
-        style={{ background: "rgba(232,241,239,0.04)", border: "1px solid var(--line-soft)", color: "var(--ink-faint)" }}>
+        style={{ background: "var(--tint)", border: "1px solid var(--line-soft)", color: "var(--ink-faint)" }}>
         {icon}
       </div>
       <p className="font-disp font-semibold text-[14.5px] mb-1">{title}</p>
@@ -225,7 +256,7 @@ export function Seg<T extends string>({
           className="px-3 py-[5px] rounded-[6px] font-disp text-[12.5px] font-medium transition-all"
           style={
             value === o.value
-              ? { background: "var(--raised)", color: "var(--ink)", boxShadow: "0 2px 8px rgba(0,0,0,0.3)", border: "1px solid var(--line)" }
+              ? { background: "var(--raised)", color: "var(--ink)", boxShadow: "0 1px 4px rgba(15,23,42,0.12)", border: "1px solid var(--line)" }
               : { color: "var(--ink-faint)", border: "1px solid transparent" }
           }
         >

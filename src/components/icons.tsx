@@ -216,6 +216,17 @@ export const IInbox = make(
 
 export const IZap = make(<path d="M13 2.5 4.5 13.5H11l-1 8 8.5-11H12l1-8Z" />);
 
+export const ISun = make(
+  <>
+    <circle cx="12" cy="12" r="4.2" />
+    <path d="M12 2.5v2.2M12 19.3v2.2M2.5 12h2.2M19.3 12h2.2M5 5l1.6 1.6M17.4 17.4 19 19M19 5l-1.6 1.6M6.6 17.4 5 19" />
+  </>
+);
+
+export const IMoon = make(
+  <path d="M20 14.5A8.5 8.5 0 0 1 9.5 4a8.5 8.5 0 1 0 10.5 10.5Z" />
+);
+
 export const IWhatsapp = ({ size = 18, className = "" }: IconProps) => (
   <svg width={size} height={size} viewBox="0 0 24 24" fill="currentColor" className={className} aria-hidden="true">
     <path d="M12 2.1A9.9 9.9 0 0 0 3.5 17l-1.4 5.1 5.2-1.4A9.9 9.9 0 1 0 12 2.1Zm0 18a8 8 0 0 1-4.1-1.1l-.3-.2-3 .8.8-3-.2-.3A8.1 8.1 0 1 1 12 20.1Zm4.4-6c-.2-.1-1.4-.7-1.6-.8-.2-.1-.4-.1-.6.1l-.8 1c-.1.2-.3.2-.5.1a6.6 6.6 0 0 1-3.3-2.9c-.2-.4 0-.5.1-.7l.5-.6c.1-.2.1-.3 0-.5l-.7-1.8c-.2-.5-.4-.4-.6-.4h-.5c-.2 0-.5.1-.7.3-.9.9-1.1 2.1-.6 3.5a11 11 0 0 0 4.5 5.1c1.7.9 2.9 1 3.9.7.7-.2 1.4-.8 1.6-1.5.2-.6.2-1.1.1-1.2l-1.4-.6Z" />

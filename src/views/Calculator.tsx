@@ -437,7 +437,7 @@ export default function Calculator() {
               </div>
             </div>
 
-            <p className="text-[12px] text-[var(--ink-dim)] mt-3 mb-0 rounded-lg px-3 py-2" style={{ background: "rgba(232,241,239,0.035)" }}>
+            <p className="text-[12px] text-[var(--ink-dim)] mt-3 mb-0 rounded-lg px-3 py-2" style={{ background: "var(--tint)" }}>
               Calculation basis: <strong className="mono">{fmtAED(r.calcBasis)}</strong>
               <span className="text-[var(--ink-faint)]"> — {r.basisLabel}. LTV {r.ltvPct}% ({input.ltvPctChoice != null ? "selected" : "default"}) for {input.applicantType}.</span>
             </p>
@@ -581,7 +581,7 @@ export default function Calculator() {
             )}
             <div className="space-y-2">
               {input.liabilities.map((l) => (
-                <div key={l.id} className="rounded-lg p-2.5 anim-fade-in" style={{ background: "rgba(232,241,239,0.025)", border: "1px solid var(--line-soft)" }}>
+                <div key={l.id} className="rounded-lg p-2.5 anim-fade-in" style={{ background: "var(--tint)", border: "1px solid var(--line-soft)" }}>
                   <div className="grid grid-cols-[1fr_130px_130px] gap-2">
                     <input className="input" value={l.name} onChange={(e) => patchLiab(l.id, { name: e.target.value })} placeholder="Liability name" />
                     <select className="select" value={l.type} onChange={(e) => patchLiab(l.id, { type: e.target.value as LiabRow["type"] })}>
@@ -679,7 +679,7 @@ export default function Calculator() {
               <div className="flex justify-between text-[10.5px] uppercase tracking-[0.1em] font-disp font-semibold text-[var(--ink-faint)] mb-1.5">
                 <span>Debt burden</span><span>cap {fmtPct(r.maxDbr)}</span>
               </div>
-              <div className="relative h-3 rounded-full overflow-hidden" style={{ background: "rgba(232,241,239,0.07)" }}>
+              <div className="relative h-3 rounded-full overflow-hidden" style={{ background: "var(--track)" }}>
                 <div className="absolute inset-y-0 left-0 rounded-l-full transition-all duration-500"
                   style={{ width: `${Math.min(r.currentDbr, 100)}%`, background: r.currentDbr > 50 ? "linear-gradient(90deg,#d95f4f,#f27363)" : "linear-gradient(90deg,#d99427,#f2b04c)" }} />
                 {r.currentDbr < 50 && (
@@ -705,8 +705,8 @@ export default function Calculator() {
                       <span className={limiting ? "text-[var(--ink)] font-semibold" : "text-[var(--ink-dim)]"}>{c.label}{limiting && <span style={{ color: "var(--amber)" }}> ◂ binds</span>}</span>
                       <span className="mono">{fmtAED(c.v)}</span>
                     </div>
-                    <div className="h-[5px] rounded-full overflow-hidden" style={{ background: "rgba(232,241,239,0.06)" }}>
-                      <div className="h-full rounded-full transition-all duration-700" style={{ width: `${(c.v / capMax) * 100}%`, background: limiting ? "var(--amber)" : "rgba(232,241,239,0.25)" }} />
+                    <div className="h-[5px] rounded-full overflow-hidden" style={{ background: "var(--track)" }}>
+                      <div className="h-full rounded-full transition-all duration-700" style={{ width: `${(c.v / capMax) * 100}%`, background: limiting ? "var(--amber)" : "var(--neutral)" }} />
                     </div>
                   </div>
                 );

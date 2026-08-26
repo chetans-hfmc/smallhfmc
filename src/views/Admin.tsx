@@ -197,7 +197,7 @@ function BanksTab() {
 
       <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-2.5 p-4">
         {[...db.banks].sort((a, b) => b.ratePct - a.ratePct).map((b) => (
-          <div key={b.id} className="rounded-lg p-3 flex items-center gap-2.5" style={{ background: "rgba(232,241,239,0.02)", border: "1px solid var(--line-soft)", opacity: b.active ? 1 : 0.5 }}>
+          <div key={b.id} className="rounded-lg p-3 flex items-center gap-2.5" style={{ background: "var(--tint)", border: "1px solid var(--line-soft)", opacity: b.active ? 1 : 0.5 }}>
             <div className="min-w-0 flex-1">
               <div className="text-[13px] font-medium truncate">{b.name}</div>
               <div className="mono text-[11px]" style={{ color: b.ratePct >= 0.9 ? "var(--mint)" : "var(--ink-faint)" }}>{fmtRate(b.ratePct)} of loan amount</div>
