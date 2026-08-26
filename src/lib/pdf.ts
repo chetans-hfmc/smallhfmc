@@ -84,8 +84,10 @@ export function generateMortgagePdf(
     }
   };
 
-  /* custom clean table for what-if pages */
-  const wtable = (cols: TCol[], rows: (string | number)[][]) => {
+  /* custom clean table for what-if pages — widths are normalised to the content width */
+  const wtable = (rawCols: TCol[], rows: (string | number)[][]) => {
+    const scale = CW / rawCols.reduce((s, c) => s + c.width, 0);
+    const cols = rawCols.map((c) => ({ ...c, width: c.width * scale }));
     const headH = 19;
     const rowH = 16.5;
     const needed = headH + rows.length * rowH + 4;
@@ -126,7 +128,7 @@ export function generateMortgagePdf(
         const isChange = c.header === "Change";
         if (isChange) {
           if (s.startsWith("+")) doc.setTextColor(POS[0], POS[1], POS[2]);
-          else if (s.startsWith("-")) doc.setTextColor(NEG[0], NEG[1], NEG[2]);
+          else if (s.startsWith("-") || s.startsWith("−")) doc.setTextColor(NEG[0], NEG[1], NEG[2]);
           else doc.setTextColor(FAINT[0], FAINT[1], FAINT[2]);
         } else if (ci === 0 && i === 0) {
           doc.setFont("helvetica", "bold");
@@ -310,16 +312,44 @@ export function generateMortgagePdf(
 
   const [liab, rate, tenor, income] = scenarios;
 
-  header(3);
+  header(doc.getNumberOfPages() + 1);
   section("What-If Analysis");
   doc.setFont("helvetica", "normal");
   doc.setFontSize(9);
   doc.setTextColor(...FAINT);
   doc.text(
-    "Each scenario re-runs the full calculation with one input changed, so the DBR, residual DBR and final MPBF shown are consistent end-to-end.",
+    `Each scenario re-runs the full calculation with one input changed. Baseline final MPBF: ${fmtAED(res.finalMpbf)} — green deltas add eligibility, red reduce it.`,
     M, y, { maxWidth: CW }
   );
-  y += 22;
+  y += 24;
+
+  /* headline first: the one line a credit officer should remember */
+  if (keyObservation) {
+    const lines = doc.splitTextToSize(keyObservation, CW - 26) as string[];
+    const boxH = lines.length * 12.5 + 18;
+    if (y + boxH > BOTTOM) {
+      doc.addPage();
+      header(doc.getNumberOfPages());
+    }
+    doc.setFillColor(251, 246, 236);
+    doc.setDrawColor(...AMBER);
+    doc.setLineWidth(0.9);
+    doc.roundedRect(M, y, CW, boxH, 3, 3, "FD");
+    doc.setFillColor(...AMBER);
+    doc.rect(M, y, 3.5, boxH, "F");
+    doc.setFont("helvetica", "bold");
+    doc.setFontSize(8);
+    doc.setTextColor(...AMBER);
+    doc.text("KEY OBSERVATION", M + 14, y + 13);
+    doc.setFontSize(9);
+    doc.setTextColor(...INK);
+    let by = y + 26;
+    for (const l of lines) {
+      doc.text(l, M + 14, by);
+      by += 12.5;
+    }
+    y += boxH + 14;
+  }
 
   if (liab) {
     section(liab.title);
@@ -329,9 +359,6 @@ export function generateMortgagePdf(
     section(rate.title);
     wtable(simpleCols("Scenario", "Assessment rate"), rate.body);
   }
-
-  doc.addPage();
-  header(4);
   if (tenor) {
     section(tenor.title);
     wtable(simpleCols("Scenario", "Tenor"), tenor.body);
@@ -341,25 +368,11 @@ export function generateMortgagePdf(
     wtable(simpleCols("Scenario", "Eligible income"), income.body);
   }
 
-  if (keyObservation) {
-    section("Key Observation");
-    doc.setFillColor(251, 246, 236);
-    doc.setDrawColor(...AMBER);
-    doc.setLineWidth(0.8);
-    const lines = doc.splitTextToSize(keyObservation, CW - 24) as string[];
-    const boxH = lines.length * 12.5 + 16;
-    doc.roundedRect(M, y, CW, boxH, 3, 3, "FD");
-    doc.setFont("helvetica", "bold");
-    doc.setFontSize(9);
-    doc.setTextColor(...INK);
-    let by = y + 15;
-    for (const l of lines) {
-      doc.text(l, M + 12, by);
-      by += 12.5;
-    }
-    y += boxH + 12;
+  /* closing block — kept together on whichever page has room */
+  if (y > BOTTOM - 130) {
+    doc.addPage();
+    header(doc.getNumberOfPages());
   }
-
   section("Basis & Disclaimer");
   doc.setFont("helvetica", "normal");
   doc.setFontSize(8.5);
