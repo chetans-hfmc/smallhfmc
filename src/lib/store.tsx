@@ -7,7 +7,7 @@ import type {
 import { seedDb } from "./data";
 import { computeAffordability } from "./calc";
 import type { CalcInput } from "./calc";
-import { ageDays, daysBetween, primaryBank, todayISO } from "./format";
+import { ageDays, daysBetween, primaryBank, toISODate, todayISO } from "./format";
 
 const DB_KEY = "meridian.casetracker.db.v6";
 const SESSION_KEY = "meridian.casetracker.session.v6";
@@ -75,6 +75,90 @@ export function bulletinCanAct(b: BulletinItem, me: User, db: DB): boolean {
   return f.scope === "all" || b.issuedBy === me.id || b.targets.includes(me.id);
 }
 
+/* carry / drop are manager moves: the issuer, or anyone with full scope */
+export function bulletinCanManage(b: BulletinItem, me: User, db: DB): boolean {
+  const f = flagsFor(db.designations, me.role);
+  return f.scope === "all" || b.issuedBy === me.id;
+}
+
+export function bulletinCanDelete(b: BulletinItem, me: User, db: DB): boolean {
+  return bulletinCanManage(b, me, db);
+}
+
+/* ---------------- bulletin lifecycle (spawn routines, resolve stale) ---------------- */
+
+const MS_DAY = 86400000;
+const SPAWN_BACK_LIMIT = 3; // don't drown a returning user: at most 3 past instances per template
+
+function eligibleDays(fromISO: string, repeat: "daily" | "weekdays"): string[] {
+  const out: string[] = [];
+  const today = todayISO();
+  const span = Math.min(daysBetween(fromISO, today), SPAWN_BACK_LIMIT + 1);
+  for (let back = Math.max(0, span); back >= 0; back--) {
+    const d = new Date(Date.now() - back * MS_DAY);
+    const iso = toISODate(d);
+    if (iso < fromISO) continue;
+    if (repeat === "weekdays") {
+      const dow = d.getDay();
+      if (dow === 0 || dow === 6) continue; // UAE weekend: Sat–Sun
+    }
+    out.push(iso);
+  }
+  return out;
+}
+
+export function spawnBulletinInstances(prev: DB): DB {
+  const templates = prev.bulletin.filter((b) => b.isTemplate && b.repeat && b.repeat !== "none");
+  if (templates.length === 0) return prev;
+  let nid = prev.bulletin.reduce((m, b) => Math.max(m, b.id), 0) + 1;
+  const added: BulletinItem[] = [];
+  for (const t of templates) {
+    for (const day of eligibleDays(t.date, t.repeat as "daily" | "weekdays")) {
+      const exists = prev.bulletin.some((b) => b.templateId === t.id && b.date === day) || added.some((b) => b.templateId === t.id && b.date === day);
+      if (exists) continue;
+      added.push({
+        ...t,
+        id: nid++,
+        date: day,
+        templateId: t.id,
+        isTemplate: false,
+        repeat: "none",
+        status: "Open",
+        completedAt: null,
+        completedBy: null,
+        carriedFrom: null,
+        dropped: false,
+        createdAt: nowISO(),
+        replies: [],
+      });
+    }
+  }
+  return added.length ? { ...prev, bulletin: [...prev.bulletin, ...added] } : prev;
+}
+
+export function resolveStaleBulletins(prev: DB): DB {
+  const casesById = new Map(prev.cases.map((c) => [c.id, c]));
+  let rid = prev.bulletin.reduce((m, b) => Math.max(m, b.id, ...b.replies.map((r) => r.id)), 0) + 1;
+  let changed = false;
+  const bulletin = prev.bulletin.map((b) => {
+    if (b.caseId != null && b.status === "Open" && !b.isTemplate) {
+      const c = casesById.get(b.caseId);
+      if (!c || c.caseStatus !== "Active") {
+        changed = true;
+        return {
+          ...b,
+          status: "Done" as const,
+          completedAt: nowISO(),
+          completedBy: null,
+          replies: [...b.replies, { id: rid++, userId: b.issuedBy, text: "Case closed — directive resolved automatically, no action needed.", at: nowISO() }],
+        };
+      }
+    }
+    return b;
+  });
+  return changed ? { ...prev, bulletin } : prev;
+}
+
 interface StoreShape {
   db: DB;
   session: User | null;
@@ -95,8 +179,11 @@ interface StoreShape {
   addInstruction: (caseId: number, input: { instruction: string; assignedTo: number; dueDate: string }) => void;
   completeInstruction: (id: number) => void;
   replyToInstruction: (id: number, text: string) => void;
-  issueBulletin: (input: { date: string; task: string; caseId: number | null; targets: number[] }) => void;
-  completeBulletin: (id: number) => void;
+  issueBulletin: (input: { date: string; task: string; caseId: number | null; targets: number[]; repeat?: "none" | "daily" | "weekdays"; asTemplate?: boolean }) => void;
+  completeBulletin: (id: number, opts?: { alsoTaskDone?: boolean }) => void;
+  carryBulletin: (id: number) => void;
+  dropBulletin: (id: number) => void;
+  deleteBulletin: (id: number) => void;
   replyToBulletin: (id: number, text: string) => void;
   canInstruct: () => boolean;
   canAdmin: () => boolean;
@@ -182,9 +269,12 @@ export function StoreProvider({ children }: { children: ReactNode }) {
   const [toasts, setToasts] = useState<ToastMsg[]>([]);
   const toastId = useRef(0);
 
+  /* bulletin lifecycle: spawn routine instances for any day without one (capped, so a
+     returning user isn't flooded) and auto-resolve directives whose case has closed */
   useEffect(() => {
-    localStorage.setItem(DB_KEY, JSON.stringify(db));
-  }, [db]);
+    setDb((prev) => resolveStaleBulletins(spawnBulletinInstances(prev)));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   useEffect(() => {
     const onHash = () => setRoute(parseHash());
@@ -399,7 +489,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
           acts = logAct(acts, id, me?.id ?? 0, "Case booked", undefined, wonBank ?? before.wonBank ?? "—");
         if (state === "Lost") acts = logAct(acts, id, me?.id ?? 0, "Case marked lost", before.stage);
         if (state === "Active") acts = logAct(acts, id, me?.id ?? 0, "Case reopened", before.caseStatus);
-        return {
+        const next: DB = {
           ...prev,
           cases: prev.cases.map((c) =>
             c.id === id
@@ -415,6 +505,9 @@ export function StoreProvider({ children }: { children: ReactNode }) {
           ),
           activities: acts,
         };
+        /* the moment a case leaves the live pipeline, any open directives pinned to it
+           resolve themselves — no stale "chase this" items linger on a closed file */
+        return state === "Active" ? next : resolveStaleBulletins(next);
       });
     },
     [session]
@@ -583,11 +676,54 @@ export function StoreProvider({ children }: { children: ReactNode }) {
   /* ---------------- morning bulletin ---------------- */
 
   const issueBulletin = useCallback(
-    (input: { date: string; task: string; caseId: number | null; targets: number[] }) => {
+    (input: { date: string; task: string; caseId: number | null; targets: number[]; repeat?: "none" | "daily" | "weekdays"; asTemplate?: boolean }) => {
       const me = session;
       setDb((prev) => {
+        let nid = nextId(prev.bulletin);
+        const list = [...prev.bulletin];
+        let acts = prev.activities;
+
+        if (input.asTemplate && input.repeat && input.repeat !== "none") {
+          // save the routine: a hidden template + today's live instance
+          const templateId = nid++;
+          list.push({
+            id: templateId,
+            date: input.date,
+            issuedBy: me?.id ?? 0,
+            task: input.task.trim(),
+            caseId: input.caseId,
+            targets: input.targets,
+            status: "Open",
+            completedAt: null,
+            completedBy: null,
+            createdAt: nowISO(),
+            replies: [],
+            repeat: input.repeat,
+            templateId: null,
+            isTemplate: true,
+          });
+          const inst: BulletinItem = {
+            id: nid++,
+            date: todayISO(),
+            issuedBy: me?.id ?? 0,
+            task: input.task.trim(),
+            caseId: input.caseId,
+            targets: input.targets,
+            status: "Open",
+            completedAt: null,
+            completedBy: null,
+            createdAt: nowISO(),
+            replies: [],
+            templateId,
+            isTemplate: false,
+          };
+          list.push(inst);
+          if (input.caseId) acts = logAct(acts, input.caseId, me?.id ?? 0, "Directive issued (routine)", undefined, inst.task);
+          return { ...prev, bulletin: list, activities: acts };
+        }
+
         const b: BulletinItem = {
-          id: nextId(prev.bulletin),
+          id: nid++,
           date: input.date,
           issuedBy: me?.id ?? 0,
           task: input.task.trim(),
@@ -599,26 +735,38 @@ export function StoreProvider({ children }: { children: ReactNode }) {
           createdAt: nowISO(),
           replies: [],
         };
-        let acts = prev.activities;
-        if (input.caseId)
-          acts = logAct(acts, input.caseId, me?.id ?? 0, "Directive issued", undefined, b.task);
-        return { ...prev, bulletin: [...prev.bulletin, b], activities: acts };
+        if (input.caseId) acts = logAct(acts, input.caseId, me?.id ?? 0, "Directive issued", undefined, b.task);
+        return { ...prev, bulletin: [...list, b], activities: acts };
       });
     },
     [session]
   );
 
   const completeBulletin = useCallback(
-    (id: number) => {
+    (id: number, opts?: { alsoTaskDone?: boolean }) => {
       const me = session;
       setDb((prev) => {
         const before = prev.bulletin.find((b) => b.id === id);
         if (!before) return prev;
         let acts = prev.activities;
+        let tasks = prev.tasks;
         if (before.caseId)
           acts = logAct(acts, before.caseId, me?.id ?? 0, "Directive completed", before.task);
+        // smart link: optionally close the case's current task in the same move
+        if (opts?.alsoTaskDone && before.caseId) {
+          const open = tasks.find((t) => t.caseId === before.caseId && t.status === "Open");
+          if (open) {
+            tasks = tasks.map((t) =>
+              t.id === open.id
+                ? { ...t, status: "Done" as const, completedAt: nowISO(), remarks: t.remarks || "Closed from morning-bulletin directive." }
+                : t
+            );
+            acts = logAct(acts, before.caseId, me?.id ?? 0, "Task completed", open.description, "via directive");
+          }
+        }
         return {
           ...prev,
+          tasks,
           bulletin: prev.bulletin.map((b) =>
             b.id === id ? { ...b, status: "Done" as const, completedAt: nowISO(), completedBy: me?.id ?? null } : b
           ),
@@ -628,6 +776,60 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     },
     [session]
   );
+
+  const carryBulletin = useCallback(
+    (id: number) => {
+      const me = session;
+      setDb((prev) => {
+        const before = prev.bulletin.find((b) => b.id === id);
+        if (!before || before.status !== "Open" || before.dropped) return prev;
+        const today = todayISO();
+        let nid = nextId(prev.bulletin);
+        const carried: BulletinItem = {
+          ...before,
+          id: nid++,
+          date: today,
+          carriedFrom: before.date,
+          templateId: before.templateId ?? null,
+          isTemplate: false,
+          status: "Open",
+          completedAt: null,
+          completedBy: null,
+          createdAt: nowISO(),
+          replies: [],
+          dropped: false,
+        };
+        let acts = prev.activities;
+        if (before.caseId)
+          acts = logAct(acts, before.caseId, me?.id ?? 0, "Directive carried forward", before.date, today);
+        return {
+          ...prev,
+          bulletin: [
+            ...prev.bulletin.map((b) => (b.id === id ? { ...b, dropped: true } : b)),
+            carried,
+          ],
+          activities: acts,
+        };
+      });
+    },
+    [session]
+  );
+
+  const dropBulletin = useCallback((id: number) => {
+    setDb((prev) => ({
+      ...prev,
+      bulletin: prev.bulletin.map((b) => (b.id === id ? { ...b, dropped: true } : b)),
+    }));
+  }, []);
+
+  const deleteBulletin = useCallback((id: number) => {
+    setDb((prev) => {
+      const before = prev.bulletin.find((b) => b.id === id);
+      if (!before) return prev;
+      // deleting a template retires its future spawns; past instances stay as record
+      return { ...prev, bulletin: prev.bulletin.filter((b) => b.id !== id) };
+    });
+  }, []);
 
   const replyToBulletin = useCallback(
     (id: number, text: string) => {
@@ -1022,7 +1224,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     db, session, route, toasts, nav, login, logout, toast, dismissToast,
     createCase, updateCase, deleteCase, setCaseState, createTask, updateTask, completeTask,
     addInstruction, completeInstruction, replyToInstruction,
-    issueBulletin, completeBulletin, replyToBulletin,
+    issueBulletin, completeBulletin, carryBulletin, dropBulletin, deleteBulletin, replyToBulletin,
     canInstruct, canAdmin,
     saveMortgageCheck, addDesignation, updateDesignation, deleteDesignation,
     runCheck, createCaseFromCheck, linkCheckToCase,

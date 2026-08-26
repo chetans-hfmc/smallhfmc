@@ -1,11 +1,11 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { activityPerDay, computeEscalations, computeKpis, useStore } from "../lib/store";
-import type { CaseState, CaseStatus, LoanCase } from "../lib/types";
+import { activityPerDay, bulletinVisible, computeEscalations, computeKpis, useStore } from "../lib/store";
+import type { BulletinItem, CaseState, CaseStatus, LoanCase } from "../lib/types";
 import { TONE_HEX, ageDays, caseStatusOf, fmtMoney, relTime, todayISO } from "../lib/format";
 import { Avatar, Chip, EmptyState, StatusChip } from "../components/ui";
 import { BankChips, CaseStateChip, SourceChip } from "../components/bits";
 import { BarList, Donut, Spark, useCountUp } from "../components/charts";
-import { IBriefcase, IInbox } from "../components/icons";
+import { IArrowR, IBriefcase, IFlag, IInbox } from "../components/icons";
 
 function useTick(intervalMs: number) {
   const [, setT] = useState(0);
@@ -107,6 +107,12 @@ export default function Dashboard() {
     .filter((a) => cases.some((c) => c.id === a.caseId))
     .sort((a, b) => b.at.localeCompare(a.at))
     .slice(0, 7);
+
+  const liveToday = (b: BulletinItem) => !b.isTemplate && !b.dropped && b.status === "Open" && b.date === todayISO();
+  const myOpenDirectives = session ? db.bulletin.filter((b) => liveToday(b) && b.targets.includes(session.id)) : [];
+  const issuedOpenDirectives = session
+    ? db.bulletin.filter((b) => liveToday(b) && b.issuedBy === session.id && bulletinVisible(b, session, db))
+    : [];
 
   const scope =
     session?.role === "Head of Company" || session?.role === "PA to HoC" || session?.role === "Mortgage Head"
@@ -251,6 +257,29 @@ export default function Dashboard() {
         </div>
 
         <div className="space-y-4">
+          {(myOpenDirectives.length > 0 || issuedOpenDirectives.length > 0) && (
+            <div className="card p-4 anim-fade-up" style={{ borderLeft: "3px solid var(--amber)" }}>
+              <div className="flex items-center gap-2 mb-2">
+                <IFlag size={14} className="text-[var(--amber)]" />
+                <h3 className="font-disp font-semibold text-[13.5px] m-0">Today's directives</h3>
+              </div>
+              <div className="flex items-baseline gap-3">
+                <span className="font-disp font-bold text-[28px] leading-none" style={{ color: "var(--amber)" }}>{myOpenDirectives.length}</span>
+                <span className="text-[12px] text-[var(--ink-dim)]">waiting on you</span>
+                {issuedOpenDirectives.length > 0 && (
+                  <span className="mono text-[11.5px] text-[var(--ink-faint)] ml-auto">+{issuedOpenDirectives.length} you issued</span>
+                )}
+              </div>
+              {myOpenDirectives.length > 0 && (
+                <p className="text-[12px] text-[var(--ink-dim)] mt-1.5 mb-0 leading-snug truncate">
+                  “{myOpenDirectives[0].task}”
+                </p>
+              )}
+              <button className="btn btn-ghost btn-sm mt-3 w-full justify-center" onClick={() => nav({ name: "bulletin" })}>
+                Open morning bulletin <IArrowR size={13} />
+              </button>
+            </div>
+          )}
           <div className="card p-4 anim-fade-up">
             <h3 className="font-disp font-semibold text-[13.5px] mt-0 mb-3">Why pending</h3>
             {whyRows.length ? <BarList items={whyRows} /> : <p className="text-[12.5px] text-[var(--ink-faint)] m-0">No open tasks.</p>}

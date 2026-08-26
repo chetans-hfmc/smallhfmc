@@ -8,7 +8,7 @@ import {
   newIncomeRow, newLiabRow, scenarioCardNewLimit, scenarioCardsPct, scenarioIncomePct,
   scenarioIncomeRemove, scenarioRate, scenarioRemoveCards, scenarioRemoveLiab, scenarioTenor, tenorLabel,
 } from "../lib/mortgage";
-import type { Frequency, IncomeRow, LiabRow, MortgageInput, MortgageResult } from "../lib/mortgage";
+import type { CoBorrower, Frequency, IncomeRow, LiabRow, MortgageInput, MortgageResult } from "../lib/mortgage";
 import { generateMortgagePdf } from "../lib/pdf";
 import type { PdfScenarioTable } from "../lib/pdf";
 import { relTime } from "../lib/format";
@@ -64,6 +64,35 @@ function Stat({ label, value, tone }: { label: string; value: string; tone?: str
   );
 }
 
+/* migrate saved payloads from older shapes so reloading a historic check never crashes */
+function normalizeInput(raw: Partial<MortgageInput>): MortgageInput {
+  const base = defaultInput();
+  const co = raw.coBorrower as
+    | (Partial<CoBorrower> & { existingEmis?: number })
+    | null
+    | undefined;
+  const coBorrower: CoBorrower | null = co
+    ? {
+        name: co.name ?? "",
+        dob: co.dob ?? "1992-01-15",
+        incomes: Array.isArray(co.incomes) ? co.incomes : [newIncomeRow()],
+        liabilities: Array.isArray(co.liabilities)
+          ? co.liabilities
+          : co.existingEmis
+          ? [{ ...newLiabRow("Other Loan"), name: "Carried-over EMIs", method: "Manual", monthlyEmi: co.existingEmis }]
+          : [],
+      }
+    : null;
+  return {
+    ...base,
+    ...raw,
+    customLtv: typeof raw.customLtv === "string" ? raw.customLtv : "",
+    coBorrower,
+    incomes: Array.isArray(raw.incomes) && raw.incomes.length ? raw.incomes : base.incomes,
+    liabilities: Array.isArray(raw.liabilities) ? raw.liabilities : [],
+  } as MortgageInput;
+}
+
 /* ---------- main view ---------- */
 
 type WhifTab = "liab" | "rate" | "tenor" | "income";
@@ -80,8 +109,22 @@ export default function Calculator() {
   const [manualRate, setManualRate] = useState("");
   const [manualTenor, setManualTenor] = useState("");
   const [extraIncome, setExtraIncome] = useState("");
+  const [clientMode, setClientMode] = useState<"trial" | "existing">("trial");
+  const [existingCaseId, setExistingCaseId] = useState<number | null>(null);
 
   const up = (patch: Partial<MortgageInput>) => setInput((p) => ({ ...p, ...patch }));
+
+  const loadExistingCase = (id: number) => {
+    const c = db.cases.find((x) => x.id === id);
+    if (!c) return;
+    setInput((p) => ({
+      ...p,
+      name: c.customer,
+      whatsapp: c.whatsapp || p.whatsapp,
+      requested: c.loanAmount > 0 ? c.loanAmount : p.requested,
+    }));
+    toast("info", `Loaded ${c.customer} from ${c.caseNumber}. This stays a trial — nothing is written back to the case.`);
+  };
   const r = useMemo(() => computeMortgage(input), [input]);
   const mpbfDisplay = useCountUp(r.finalMpbf, 550);
 
@@ -117,7 +160,7 @@ export default function Calculator() {
     }));
 
   const defaultLtv = defaultLtvPct(input.applicantType);
-  const isCustomLtv = input.ltvPctChoice != null && !LTV_CHOICES.includes(input.ltvPctChoice);
+  const isCustomLtv = input.customLtv.trim() !== "" && !Number.isNaN(parseFloat(input.customLtv));
 
   /* ---------------- scenarios ---------------- */
 
@@ -347,9 +390,45 @@ export default function Calculator() {
             Preliminary MPBF assessment · CBUAE-style DBR {fmtPct(50)} cap · <em>not</em> a bank approval
           </p>
         </div>
-        <button className="btn btn-ghost btn-sm" onClick={() => { setInput(defaultInput()); setSavedId(null); toast("info", "Calculator reset."); }}>
+        <button className="btn btn-ghost btn-sm" onClick={() => { setInput(defaultInput()); setSavedId(null); setClientMode("trial"); setExistingCaseId(null); toast("info", "Calculator reset."); }}>
           Reset
         </button>
+      </div>
+
+      {/* client mode — trial vs existing */}
+      <div className="card px-4 py-3 anim-fade-up">
+        <div className="flex flex-wrap items-center gap-3">
+          <span className="text-[10.5px] uppercase tracking-[0.12em] font-disp font-semibold text-[var(--ink-faint)]">Running for</span>
+          <div className="flex rounded-lg overflow-hidden border" style={{ borderColor: "var(--line)" }}>
+            <button type="button"
+              className="px-3.5 py-1.5 text-[12.5px] font-disp font-semibold transition-colors"
+              style={clientMode === "trial" ? { background: "var(--amber-tint)", color: "var(--amber)" } : { color: "var(--ink-faint)" }}
+              onClick={() => setClientMode("trial")}>
+              New client · trial
+            </button>
+            <button type="button"
+              className="px-3.5 py-1.5 text-[12.5px] font-disp font-semibold transition-colors"
+              style={clientMode === "existing" ? { background: "var(--amber-tint)", color: "var(--amber)" } : { color: "var(--ink-faint)" }}
+              onClick={() => setClientMode("existing")}>
+              Existing client
+            </button>
+          </div>
+
+          {clientMode === "trial" ? (
+            <span className="text-[11.5px] text-[var(--ink-faint)] flex items-center gap-1.5">
+              <span className="w-1.5 h-1.5 rounded-full" style={{ background: "var(--mint)" }} />
+              Pure what-if — saving stores an audit check only, never creates a case.
+            </span>
+          ) : (
+            <select className="select" style={{ width: 280 }} value={existingCaseId ?? ""}
+              onChange={(e) => { const v = e.target.value ? Number(e.target.value) : null; setExistingCaseId(v); if (v) loadExistingCase(v); }}>
+              <option value="">Select a case file…</option>
+              {[...db.cases].sort((a, b) => b.id - a.id).map((c) => (
+                <option key={c.id} value={c.id}>{c.caseNumber} · {c.customer}</option>
+              ))}
+            </select>
+          )}
+        </div>
       </div>
 
       <div className="grid grid-cols-1 xl:grid-cols-[1fr_400px] gap-4 items-start">
@@ -414,33 +493,32 @@ export default function Calculator() {
             </div>
 
             <div className="mt-3">
-              <label className="label">LTV applied — default {defaultLtv}% for {input.applicantType}</label>
+              <label className="label">
+                LTV applied — default {defaultLtv}% for {input.applicantType}
+                {isCustomLtv && <span style={{ color: "var(--amber)" }}> · using custom {parseFloat(input.customLtv)}%</span>}
+              </label>
               <div className="flex flex-wrap items-center gap-1.5">
                 <button type="button" className="chip transition-all"
-                  style={input.ltvPctChoice == null ? { background: "var(--amber-tint)", borderColor: "var(--amber)", color: "var(--amber)" } : { background: "var(--bg2)", borderColor: "var(--line)", color: "var(--ink-faint)" }}
-                  onClick={() => up({ ltvPctChoice: null })}>
+                  style={input.ltvPctChoice == null && !isCustomLtv ? { background: "var(--amber-tint)", borderColor: "var(--amber)", color: "var(--amber)" } : { background: "var(--bg2)", borderColor: "var(--line)", color: "var(--ink-faint)" }}
+                  onClick={() => up({ ltvPctChoice: null, customLtv: "" })}>
                   Default {defaultLtv}%
                 </button>
                 {LTV_CHOICES.map((v) => (
                   <button key={v} type="button" className="chip transition-all"
-                    style={input.ltvPctChoice === v ? { background: "var(--amber-tint)", borderColor: "var(--amber)", color: "var(--amber)" } : { background: "var(--bg2)", borderColor: "var(--line)", color: "var(--ink-faint)" }}
-                    onClick={() => up({ ltvPctChoice: v })}>
+                    style={input.ltvPctChoice === v && !isCustomLtv ? { background: "var(--amber-tint)", borderColor: "var(--amber)", color: "var(--amber)" } : { background: "var(--bg2)", borderColor: "var(--line)", color: "var(--ink-faint)" }}
+                    onClick={() => up({ ltvPctChoice: v, customLtv: "" })}>
                     {v}%
                   </button>
                 ))}
-                <button type="button" className="chip transition-all"
-                  style={isCustomLtv ? { background: "var(--amber-tint)", borderColor: "var(--amber)", color: "var(--amber)" } : { background: "var(--bg2)", borderColor: "var(--line)", color: "var(--ink-faint)" }}
-                  onClick={() => up({ ltvPctChoice: isCustomLtv ? input.ltvPctChoice : defaultLtv })}>
-                  Custom
-                </button>
-                {isCustomLtv && (
-                  <span className="flex items-center gap-1.5 anim-fade-in">
-                    <input className="input mono" style={{ width: 84, padding: "4px 8px" }} type="number" min={10} max={95} step={1}
-                      value={input.ltvPctChoice ?? ""}
-                      onChange={(e) => up({ ltvPctChoice: Math.min(95, Math.max(10, Number(e.target.value) || 0)) })} />
-                    <span className="text-[12px] text-[var(--ink-faint)]">%</span>
-                  </span>
-                )}
+                <span className={`flex items-center gap-1.5 transition-all`}
+                  style={{ background: isCustomLtv ? "var(--amber-tint)" : "var(--bg2)", border: `1px solid ${isCustomLtv ? "var(--amber)" : "var(--line)"}`, borderRadius: 5, paddingLeft: 8, paddingRight: 8 }}>
+                  <span className="text-[11px] uppercase tracking-[0.06em] font-disp" style={{ color: isCustomLtv ? "var(--amber)" : "var(--ink-faint)" }}>Custom</span>
+                  <input className="mono" style={{ width: 52, padding: "3px 0", border: "none", background: "transparent", color: "var(--ink)", fontSize: 12, textAlign: "right", outline: "none" }}
+                    type="number" min={1} max={95} step={0.5} placeholder="e.g. 72"
+                    value={input.customLtv}
+                    onChange={(e) => up({ customLtv: e.target.value, ltvPctChoice: null })} />
+                  <span className="text-[11px]" style={{ color: isCustomLtv ? "var(--amber)" : "var(--ink-faint)" }}>%</span>
+                </span>
               </div>
             </div>
 
@@ -945,17 +1023,18 @@ export default function Calculator() {
                   <div className="ml-auto flex items-center gap-1.5 flex-wrap">
                     {parsed?.input && (
                       <>
-                        <button className="btn btn-ghost btn-sm" onClick={() => { setInput(parsed.input as MortgageInput); setSavedId(k.id); window.scrollTo({ top: 0, behavior: "smooth" }); toast("info", `Loaded check #${k.id} for ${k.customerName}.`); }}>
+                        <button className="btn btn-ghost btn-sm" onClick={() => { setInput(normalizeInput(parsed.input as MortgageInput)); setSavedId(k.id); window.scrollTo({ top: 0, behavior: "smooth" }); toast("info", `Loaded check #${k.id} for ${k.customerName}.`); }}>
                           Open
                         </button>
                         <button className="btn btn-ghost btn-sm" onClick={() => {
-                          const ri = computeMortgage(parsed.input as MortgageInput);
-                          generateMortgagePdf(parsed.input as MortgageInput, ri, [], session?.name ?? "HFMC");
+                          const ni = normalizeInput(parsed.input as MortgageInput);
+                          const ri = computeMortgage(ni);
+                          generateMortgagePdf(ni, ri, [], session?.name ?? "HFMC");
                         }}>
                           PDF
                         </button>
                         <button className="btn btn-ghost btn-sm" onClick={() => {
-                          const pi = parsed.input as MortgageInput;
+                          const pi = normalizeInput(parsed.input as MortgageInput);
                           const ri = computeMortgage(pi);
                           const liab = runScenarios(liabScenariosOf(pi));
                           const income = runScenarios(incomeScenariosOf(pi));
