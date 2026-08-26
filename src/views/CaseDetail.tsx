@@ -120,13 +120,29 @@ function DirectivesBanner({ c }: { c: LoanCase }) {
                   )}
                 </div>
                 <div className="flex flex-col gap-1.5 shrink-0">
-                  {canAct && (
+                  {canAct && (isInstr || !d.b.caseId) && (
                     <button className="btn btn-mint btn-sm" onClick={() => {
                       if (isInstr) { completeInstruction(d.i.id); } else { completeBulletin(d.b.id); }
                       toast("success", "Directive marked done.");
                     }}>
                       <ICheck size={13} /> Done
                     </button>
+                  )}
+                  {canAct && !isInstr && d.b.caseId === c.id && (
+                    <>
+                      <button className="btn btn-ghost btn-sm" onClick={() => {
+                        completeBulletin(d.b.id);
+                        toast("success", "Directive marked done.");
+                      }}>
+                        <ICheck size={13} /> Done
+                      </button>
+                      <button className="btn btn-mint btn-sm" title="Close this directive and the case's current task in one move" onClick={() => {
+                        completeBulletin(d.b.id, { alsoTaskDone: true });
+                        toast("success", "Directive done — case task closed with it.");
+                      }}>
+                        <ICheck size={13} /> Done + close task
+                      </button>
+                    </>
                   )}
                   <button className="btn btn-ghost btn-sm" onClick={() => setOpenThread((t) => ({ ...t, [d.key]: !t[d.key] }))}>
                     Reply {replies.length > 0 && <span className="mono">({replies.length})</span>}

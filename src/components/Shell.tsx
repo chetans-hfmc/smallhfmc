@@ -265,7 +265,7 @@ export default function Shell({ children }: { children: ReactNode }) {
   const isAdmin = session?.role === "Head of Company" || session?.role === "Mortgage Head";
 
   const myOpenDirectives = session
-    ? db.bulletin.filter((b) => b.date === todayISO() && b.status === "Open" && bulletinVisible(b, session, db) && b.targets.includes(session.id)).length
+    ? db.bulletin.filter((b) => !b.isTemplate && !b.dropped && b.date === todayISO() && b.status === "Open" && bulletinVisible(b, session, db) && b.targets.includes(session.id)).length
     : 0;
 
   const navItems: { label: string; route: Route; icon: (p: { size?: number; className?: string }) => ReactNode; badge?: number }[] = [
