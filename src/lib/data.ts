@@ -1,8 +1,8 @@
 import type {
-  Activity, AffordabilityCheck, BankItem, DB, Designation, Instruction, LoanCase, MasterItem,
+  Activity, AffordabilityCheck, BankItem, BulletinItem, DB, Designation, Instruction, LoanCase, MasterItem,
   PartnerItem, SlaRule, StageItem, Task, User,
 } from "./types";
-import { daysAgoISO, inDaysISO } from "./format";
+import { daysAgoISO, inDaysISO, todayISO } from "./format";
 import { computeAffordability } from "./calc";
 
 const DAY = 86400000;
@@ -317,11 +317,28 @@ export function seedDb(): DB {
   }
 
   const instructions: Instruction[] = [
-    { id: 1, caseId: 1, issuedBy: 4, instruction: "Client has gone quiet on documents. Do a home visit before Friday — do not let this slip to 'no response'.", assignedTo: 5, dueDate: inDaysISO(2), status: "Open", createdAt: ts(2, 3), completedAt: null },
-    { id: 2, caseId: 4, issuedBy: 1, instruction: "This HSBC query is a day overdue. Call the RM directly today and close the spouse income point.", assignedTo: 7, dueDate: inDaysISO(0), status: "Open", createdAt: ts(1, 5), completedAt: null },
-    { id: 3, caseId: 7, issuedBy: 3, instruction: "Confirm Mashreq disbursement with the client and update the tracker the same day.", assignedTo: 7, dueDate: daysAgoISO(1), status: "Done", createdAt: ts(3, 2), completedAt: ts(1, 4) },
-    { id: 4, caseId: 17, issuedBy: 1, instruction: "If the legal opinion is not in by Monday, switch to our empanelled vendor. This file is worth AED 4.8M.", assignedTo: 6, dueDate: inDaysISO(3), status: "Open", createdAt: ts(1, 1), completedAt: null },
-    { id: 5, caseId: 5, issuedBy: 2, instruction: "Run the affordability calculator and shortlist two banks for this client by tomorrow.", assignedTo: 9, dueDate: inDaysISO(1), status: "Open", createdAt: ts(1, 2), completedAt: null },
+    { id: 1, caseId: 1, issuedBy: 4, instruction: "Client has gone quiet on documents. Do a home visit before Friday — do not let this slip to 'no response'.", assignedTo: 5, dueDate: inDaysISO(2), status: "Open", createdAt: ts(2, 3), completedAt: null,
+      replies: [
+        { id: 1, userId: 5, text: "Home visit done yesterday evening. 4 of 6 statements collected — balance promised Friday morning.", at: ts(1, 2) },
+        { id: 2, userId: 4, text: "Good. If Friday slips, we pull the file from ADCB and re-submit to FAB.", at: ts(0, 6) },
+      ] },
+    { id: 2, caseId: 4, issuedBy: 1, instruction: "This HSBC query is a day overdue. Call the RM directly today and close the spouse income point.", assignedTo: 7, dueDate: inDaysISO(0), status: "Open", createdAt: ts(1, 5), completedAt: null,
+      replies: [{ id: 3, userId: 7, text: "On it — RM confirmed an 11:30 call today.", at: ts(0, 4) }] },
+    { id: 3, caseId: 7, issuedBy: 3, instruction: "Confirm Mashreq disbursement with the client and update the tracker the same day.", assignedTo: 7, dueDate: daysAgoISO(1), status: "Done", createdAt: ts(3, 2), completedAt: ts(1, 4),
+      replies: [{ id: 4, userId: 7, text: "Disbursed AED 1.6M confirmed with client. Tracker updated.", at: ts(1, 3) }] },
+    { id: 4, caseId: 17, issuedBy: 1, instruction: "If the legal opinion is not in by Monday, switch to our empanelled vendor. This file is worth AED 4.8M.", assignedTo: 6, dueDate: inDaysISO(3), status: "Open", createdAt: ts(1, 1), completedAt: null, replies: [] },
+    { id: 5, caseId: 5, issuedBy: 2, instruction: "Run the affordability calculator and shortlist two banks for this client by tomorrow.", assignedTo: 9, dueDate: inDaysISO(1), status: "Open", createdAt: ts(1, 2), completedAt: null, replies: [] },
+  ];
+
+  const bulletin: BulletinItem[] = [
+    { id: 1, date: todayISO(), issuedBy: 4, task: "Morning huddle 9:30 sharp — everyone bring their overdue files. We clear the Pre-Approval backlog today, no file older than 5 days leaves the room unresolved.", caseId: null, targets: [5, 6, 9], status: "Open", completedAt: null, completedBy: null, createdAt: ts(0, 7),
+      replies: [{ id: 5, userId: 9, text: "Bringing John Okafor — shortlist is ready for review.", at: ts(0, 5) }] },
+    { id: 2, date: todayISO(), issuedBy: 1, task: "HSBC file CASE-000114 is a day overdue on the spouse-income query. Owner to call the RM before 12:00 — no email ping-pong on this one.", caseId: 4, targets: [7], status: "Open", completedAt: null, completedBy: null, createdAt: ts(0, 6), replies: [] },
+    { id: 3, date: todayISO(), issuedBy: 3, task: "Daniel Osei — Ejari + tenancy contract is the third reminder now. If silent by 17:00, schedule a home visit for tomorrow morning.", caseId: 22, targets: [9], status: "Open", completedAt: null, completedBy: null, createdAt: ts(0, 5), replies: [] },
+    { id: 4, date: todayISO(), issuedBy: 2, task: "All WhatsApp groups created yesterday must have the document checklist pinned today. Audit at EOD.", caseId: null, targets: [5, 6, 7, 8, 9], status: "Open", completedAt: null, completedBy: null, createdAt: ts(0, 4), replies: [] },
+    { id: 5, date: daysAgoISO(1), issuedBy: 4, task: "Every valuation report older than 2 days gets chased with the valuer before EOD. Valuation Report stage is our biggest leak.", caseId: null, targets: [5, 6], status: "Done", completedAt: ts(0, 9), completedBy: 6, createdAt: ts(1, 6),
+      replies: [{ id: 6, userId: 6, text: "Both chased — Grace Muthoni's report lands tomorrow morning, Lucia's invoice uploaded.", at: ts(1, 2) }] },
+    { id: 6, date: daysAgoISO(1), issuedBy: 1, task: "Falcon Properties introduced 3 files this week — acknowledge each lead with a same-day WhatsApp. Agents remember speed.", caseId: null, targets: [5], status: "Done", completedAt: ts(1, 1), completedBy: 5, createdAt: ts(1, 8), replies: [] },
   ];
 
   const mkCheck = (
@@ -352,7 +369,7 @@ export function seedDb(): DB {
   ];
 
   return {
-    version: 8, users, designations, cases, tasks, activities, stages, whyPending, waitingFor,
-    banks, partners, slaRules, instructions, affordabilityChecks,
+    version: 9, users, designations, cases, tasks, activities, stages, whyPending, waitingFor,
+    banks, partners, slaRules, instructions, bulletin, affordabilityChecks,
   };
 }

@@ -118,6 +118,13 @@ export interface SlaRule {
   active: boolean;
 }
 
+export interface Reply {
+  id: number;
+  userId: number;
+  text: string;
+  at: string;
+}
+
 export interface Instruction {
   id: number;
   caseId: number;
@@ -128,6 +135,22 @@ export interface Instruction {
   status: "Open" | "Done";
   createdAt: string;
   completedAt: string | null;
+  replies: Reply[];
+}
+
+/* a dated directive broadcast to teammates — the "morning bulletin" feed */
+export interface BulletinItem {
+  id: number;
+  date: string; // ISO date this directive belongs to
+  issuedBy: number;
+  task: string;
+  caseId: number | null; // optional — pins the directive to a case
+  targets: number[]; // user ids addressed
+  status: "Open" | "Done";
+  completedAt: string | null;
+  completedBy: number | null;
+  createdAt: string;
+  replies: Reply[];
 }
 
 export interface AffordabilityCheck {
@@ -171,6 +194,7 @@ export interface DB {
   partners: PartnerItem[];
   slaRules: SlaRule[];
   instructions: Instruction[];
+  bulletin: BulletinItem[];
   affordabilityChecks: AffordabilityCheck[];
 }
 
@@ -178,6 +202,7 @@ export type Route =
   | { name: "dashboard" }
   | { name: "case"; id: number }
   | { name: "tasks" }
+  | { name: "bulletin" }
   | { name: "calculator" }
   | { name: "reports" }
   | { name: "admin" };
