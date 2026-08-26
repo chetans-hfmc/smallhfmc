@@ -268,7 +268,7 @@ export default function Dashboard() {
             <div className="space-y-2">
               {ownerRows.length === 0 && <p className="text-[12.5px] text-[var(--ink-faint)] m-0">No open tasks assigned.</p>}
               {ownerRows.map((o) => (
-                <button key={o.id} className="w-full flex items-center gap-2.5 rounded-lg px-2 py-1.5 transition-colors hover:bg-[rgba(232,241,239,0.045)]" onClick={() => { setOwner(String(o.id)); setStateTab("Active"); }}>
+                <button key={o.id} className="rowlink w-full flex items-center gap-2.5 rounded-lg px-2 py-1.5" onClick={() => { setOwner(String(o.id)); setStateTab("Active"); }}>
                   <Avatar name={o.name} size={26} />
                   <span className="text-[12.5px] flex-1 text-left truncate">{o.name}</span>
                   {o.od > 0 && <span className="mono text-[11px]" style={{ color: "var(--coral)" }}>{o.od} od</span>}
@@ -284,7 +284,7 @@ export default function Dashboard() {
               {recent.map((a) => {
                 const c = db.cases.find((x) => x.id === a.caseId);
                 return (
-                  <button key={a.id} className="w-full text-left flex gap-2.5 rounded-lg px-2 py-1.5 transition-colors hover:bg-[rgba(232,241,239,0.045)]" onClick={() => c && nav({ name: "case", id: c.id })}>
+                  <button key={a.id} className="rowlink w-full text-left flex gap-2.5 rounded-lg px-2 py-1.5" onClick={() => c && nav({ name: "case", id: c.id })}>
                     <Avatar name={userById(a.userId)?.name ?? "?"} size={24} />
                     <span className="min-w-0">
                       <span className="block text-[12px] leading-snug">

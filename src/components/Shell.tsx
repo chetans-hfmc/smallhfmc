@@ -4,7 +4,7 @@ import type { CasePartner, CaseSource, Role, Route } from "../lib/types";
 import { PARTNER_SHARES, SOURCES } from "../lib/types";
 import { bulletinVisible, computeEscalations, useStore } from "../lib/store";
 import { fmtMoney, inDaysISO, todayISO } from "../lib/format";
-import { Avatar, Chip, Modal } from "./ui";
+import { Avatar, Chip, Modal, ThemeToggle } from "./ui";
 import {
   IBank, IBriefcase, ICalc, IChart, IFlag, IGrid, ILogout, IPlus, IShield, ITasks, LogoMark,
 } from "./icons";
@@ -290,7 +290,7 @@ export default function Shell({ children }: { children: ReactNode }) {
       <div className="app-bg" />
 
       {/* sidebar */}
-      <aside className="w-[228px] shrink-0 border-r flex flex-col" style={{ borderColor: "var(--line-soft)", background: "rgba(11,23,29,0.85)", backdropFilter: "blur(6px)" }}>
+      <aside className="side-dark w-[228px] shrink-0 border-r flex flex-col" style={{ borderColor: "#18313b", background: "rgba(11,23,29,0.88)", backdropFilter: "blur(6px)" }}>
         <div className="flex items-center gap-2.5 px-4 py-4">
           <LogoMark size={30} />
           <div>
@@ -334,7 +334,7 @@ export default function Shell({ children }: { children: ReactNode }) {
             </div>
           </div>
 
-          <div className="flex items-center gap-2.5 px-2 py-2 rounded-lg" style={{ background: "rgba(232,241,239,0.03)" }}>
+          <div className="flex items-center gap-2.5 px-2 py-2 rounded-lg" style={{ background: "var(--tint)" }}>
             <Avatar name={session?.name ?? "?"} size={32} />
             <div className="min-w-0 flex-1">
               <div className="text-[12.5px] font-medium truncate">{session?.name}</div>
@@ -349,13 +349,14 @@ export default function Shell({ children }: { children: ReactNode }) {
 
       {/* main */}
       <div className="flex-1 flex flex-col min-w-0">
-        <header className="h-[54px] shrink-0 border-b flex items-center gap-4 px-5" style={{ borderColor: "var(--line-soft)", background: "rgba(11,23,29,0.7)", backdropFilter: "blur(6px)" }}>
+        <header className="h-[54px] shrink-0 border-b flex items-center gap-4 px-5" style={{ borderColor: "var(--line-soft)", background: "color-mix(in srgb, var(--bg) 78%, transparent)", backdropFilter: "blur(6px)" }}>
           <h1 className="font-disp font-semibold text-[16px] m-0">{title}</h1>
           {route.name === "case" && (
             <span className="text-[12px] text-[var(--ink-faint)] hidden sm:inline">the full story of one file</span>
           )}
-          <div className="ml-auto flex items-center gap-4">
+          <div className="ml-auto flex items-center gap-3">
             <Clock />
+            <ThemeToggle compact />
             <button className="btn btn-primary btn-sm" onClick={() => setShowNew(true)}>
               <IPlus size={14} /> New case
             </button>

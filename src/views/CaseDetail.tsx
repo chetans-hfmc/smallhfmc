@@ -24,7 +24,7 @@ function DirectiveReply({ replies, onSend }: { replies: Reply[]; onSend: (t: str
       {replies.map((r) => (
         <div key={r.id} className="flex items-start gap-2 anim-fade-in">
           <Avatar name={userById(r.userId)?.name ?? "?"} size={20} />
-          <div className="min-w-0 flex-1 rounded-lg px-2.5 py-1.5" style={{ background: "rgba(232,241,239,0.035)", border: "1px solid var(--line-soft)" }}>
+          <div className="min-w-0 flex-1 rounded-lg px-2.5 py-1.5" style={{ background: "var(--tint)", border: "1px solid var(--line-soft)" }}>
             <span className="text-[11.5px] font-semibold">{userById(r.userId)?.name ?? "—"}</span>
             <span className="mono text-[9.5px] text-[var(--ink-faint)] ml-1.5">{relTime(r.at)}</span>
             <p className="text-[12px] text-[var(--ink-dim)] m-0 leading-snug">{r.text}</p>
@@ -307,76 +307,6 @@ function NextTaskModal({ c, open, onClose }: { c: LoanCase; open: boolean; onClo
         <button className="btn btn-primary" onClick={submit}>Open task</button>
       </div>
     </Modal>
-  );
-}
-
-function InstructionsPanel({ c }: { c: LoanCase }) {
-  const { db, session, addInstruction, completeInstruction, canInstruct, userById, toast } = useStore();
-  const list = db.instructions.filter((i) => i.caseId === c.id).sort((a, b) => (a.status === b.status ? b.createdAt.localeCompare(a.createdAt) : a.status === "Open" ? -1 : 1));
-  const [text, setText] = useState("");
-  const [assignee, setAssignee] = useState(c.ownerId);
-  const [due, setDue] = useState(inDaysISO(2));
-  const manager = canInstruct();
-
-  return (
-    <div className="card">
-      <div className="px-4 py-3 border-b flex items-center gap-2" style={{ borderColor: "var(--line-soft)" }}>
-        <IFlag size={15} className="text-[var(--sky)]" />
-        <h3 className="font-disp font-semibold text-[13.5px] m-0">Manager instructions</h3>
-        <span className="mono text-[11px] text-[var(--ink-faint)] ml-auto">{list.filter((i) => i.status === "Open").length} open</span>
-      </div>
-      <div className="p-4 space-y-2.5">
-        {list.length === 0 && <p className="text-[12.5px] text-[var(--ink-faint)] m-0">No directives on this case.</p>}
-        {list.map((i) => {
-          const overdue = i.status === "Open" && i.dueDate < todayISO();
-          return (
-            <div key={i.id} className="rounded-lg p-3 flex items-start gap-3" style={{ background: i.status === "Open" ? "rgba(87,194,234,0.05)" : "rgba(232,241,239,0.02)", border: `1px solid ${i.status === "Open" ? "rgba(87,194,234,0.18)" : "var(--line-soft)"}` }}>
-              <Avatar name={userById(i.issuedBy)?.name ?? "?"} size={28} />
-              <div className="min-w-0 flex-1">
-                <p className={`text-[13px] m-0 ${i.status === "Done" ? "line-through text-[var(--ink-faint)]" : ""}`}>{i.instruction}</p>
-                <div className="flex flex-wrap items-center gap-x-3 gap-y-1 mt-1.5 text-[11px] text-[var(--ink-faint)]">
-                  <span>by <span className="text-[var(--ink-dim)]">{userById(i.issuedBy)?.name ?? "—"}</span></span>
-                  <span>→ <span className="text-[var(--ink-dim)]">{userById(i.assignedTo)?.name ?? "—"}</span></span>
-                  <span className={overdue ? "font-semibold" : ""} style={overdue ? { color: "var(--coral)" } : undefined}>due {fmtDate(i.dueDate)}</span>
-                  {i.status === "Done" && i.completedAt && <span>done {relTime(i.completedAt)}</span>}
-                </div>
-              </div>
-              {i.status === "Open" && (manager || i.assignedTo === session?.id) && (
-                <button className="btn btn-ghost btn-sm shrink-0" onClick={() => { completeInstruction(i.id); toast("success", "Instruction marked done."); }}>
-                  Done
-                </button>
-              )}
-            </div>
-          );
-        })}
-
-        {manager && c.caseStatus === "Active" && (
-          <div className="pt-2 mt-1" style={{ borderTop: "1px dashed var(--line)" }}>
-            <label className="label">Issue an instruction</label>
-            <textarea className="textarea" rows={2} placeholder="e.g. Call the client today and get the NOC — do not let this slip." value={text} onChange={(e) => setText(e.target.value)} />
-            <div className="flex flex-wrap gap-2 mt-2">
-              <select className="select" style={{ width: 170 }} value={assignee} onChange={(e) => setAssignee(parseInt(e.target.value, 10))}>
-                {db.users.filter((u) => u.active).map((u) => (
-                  <option key={u.id} value={u.id}>{u.name}</option>
-                ))}
-              </select>
-              <input className="input mono" style={{ width: 150 }} type="date" value={due} onChange={(e) => setDue(e.target.value)} />
-              <button
-                className="btn btn-primary btn-sm"
-                onClick={() => {
-                  if (!text.trim()) return toast("error", "Write the instruction first.");
-                  addInstruction(c.id, { instruction: text, assignedTo: assignee, dueDate: due });
-                  setText("");
-                  toast("success", "Instruction issued.");
-                }}
-              >
-                <IFlag size={13} /> Issue
-              </button>
-            </div>
-          </div>
-        )}
-      </div>
-    </div>
   );
 }
 

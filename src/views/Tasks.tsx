@@ -138,7 +138,7 @@ export default function Tasks() {
                   return (
                     <tr key={t.id} style={{ opacity: isOpen ? 1 : 0.62 }}>
                       <td className="max-w-[260px]">
-                        <p className="font-medium m-0 leading-snug" style={{ textDecoration: isOpen ? undefined : "line-through", textDecorationColor: "rgba(232,241,239,0.3)" }}>
+                        <p className="font-medium m-0 leading-snug" style={{ textDecoration: isOpen ? undefined : "line-through", textDecorationColor: "var(--ink-faint)" }}>
                           {t.description}
                         </p>
                         <p className="text-[11px] text-[var(--ink-faint)] m-0 mt-0.5 truncate">
