@@ -143,7 +143,7 @@ function DirectivesBanner({ c }: { c: LoanCase }) {
       </div>
 
       {manager && isActive && (
-        <div className="px-4 py-3" style={{ borderTop: "1px dashed rgba(242,176,76,0.25)" }}>
+        <div className="px-4 py-3" style={{ borderTop: "1px dashed color-mix(in srgb, var(--amber) 28%, transparent)" }}>
           {showComposer ? (
             <div className="space-y-2 anim-fade-in">
               <textarea className="textarea" rows={2} autoFocus placeholder="e.g. Call the client today and get the NOC — do not let this slip."
@@ -181,7 +181,7 @@ function EditableTask({ task }: { task: Task }) {
   const [remarks, setRemarks] = useState("");
 
   return (
-    <div className="card p-4" style={{ borderColor: "rgba(242,176,76,0.3)" }}>
+    <div className="card p-4" style={{ borderColor: "color-mix(in srgb, var(--amber) 32%, transparent)" }}>
       <div className="flex items-start justify-between gap-3 mb-3">
         <div className="flex items-center gap-2 text-[11px] uppercase tracking-[0.12em] font-disp font-semibold" style={{ color: "var(--amber)" }}>
           <IZap size={14} /> Current task
@@ -358,7 +358,7 @@ export default function CaseDetail({ id }: { id: number }) {
 
       {/* WhatsApp chase bar — first thing on the case */}
       {(c.whatsapp || c.waGroup) && (
-        <div className="card px-4 py-2.5 flex flex-wrap items-center gap-3 anim-fade-up" style={{ borderColor: "rgba(67,214,155,0.3)" }}>
+        <div className="card px-4 py-2.5 flex flex-wrap items-center gap-3 anim-fade-up" style={{ borderColor: "color-mix(in srgb, var(--mint) 32%, transparent)" }}>
           <span className="text-[11px] uppercase tracking-[0.12em] font-disp font-semibold" style={{ color: "var(--mint)" }}>
             Client chase
           </span>
@@ -444,9 +444,9 @@ export default function CaseDetail({ id }: { id: number }) {
                       className="w-[26px] h-[26px] rounded-full flex items-center justify-center mono text-[11px] font-semibold transition-all"
                       style={
                         current
-                          ? { background: lost ? "var(--coral)" : "var(--amber)", color: "#231a08", boxShadow: `0 0 0 4px ${lost ? "rgba(242,115,99,0.18)" : "rgba(242,176,76,0.16)"}` }
+                          ? { background: lost ? "var(--coral)" : "var(--amber)", color: "var(--amber-ink)", boxShadow: `0 0 0 4px ${lost ? "color-mix(in srgb, var(--coral) 20%, transparent)" : "color-mix(in srgb, var(--amber) 18%, transparent)"}` }
                           : reached
-                          ? { background: "rgba(67,214,155,0.16)", color: "var(--mint)", border: "1px solid rgba(67,214,155,0.4)" }
+                          ? { background: "color-mix(in srgb, var(--mint) 15%, transparent)", color: "var(--mint)", border: "1px solid color-mix(in srgb, var(--mint) 42%, transparent)" }
                           : { background: "var(--bg2)", color: "var(--ink-faint)", border: "1px solid var(--line)" }
                       }
                     >
@@ -457,7 +457,7 @@ export default function CaseDetail({ id }: { id: number }) {
                     </span>
                   </button>
                   {i < stages.length - 1 && (
-                    <div className="w-7 h-px mx-1 mb-[22px]" style={{ background: i < stageIdx ? "rgba(67,214,155,0.5)" : "var(--line)" }} />
+                    <div className="w-7 h-px mx-1 mb-[22px]" style={{ background: i < stageIdx ? "color-mix(in srgb, var(--mint) 52%, transparent)" : "var(--line)" }} />
                   )}
                 </div>
               );
@@ -467,7 +467,7 @@ export default function CaseDetail({ id }: { id: number }) {
       </div>
 
       {!isActive && (
-        <div className="card px-4 py-3 text-[13px] anim-fade-up" style={{ borderColor: c.caseStatus === "Lost" ? "rgba(242,115,99,0.3)" : "rgba(87,194,234,0.3)", color: "var(--ink-dim)" }}>
+        <div className="card px-4 py-3 text-[13px] anim-fade-up" style={{ borderColor: c.caseStatus === "Lost" ? "color-mix(in srgb, var(--coral) 32%, transparent)" : "color-mix(in srgb, var(--sky) 32%, transparent)", color: "var(--ink-dim)" }}>
           This case is <strong style={{ color: c.caseStatus === "Lost" ? "var(--coral)" : "var(--sky)" }}>{c.caseStatus === "Lost" ? "lost" : "booked"}</strong> — the task engine is paused. Reopen it to resume work.
         </div>
       )}
@@ -477,7 +477,7 @@ export default function CaseDetail({ id }: { id: number }) {
         <div className="space-y-4">
           {isActive && openTask && <EditableTask task={openTask} />}
           {isActive && !openTask && (
-            <div className="card p-6 text-center anim-fade-up" style={{ borderColor: "rgba(242,115,99,0.35)" }}>
+            <div className="card p-6 text-center anim-fade-up" style={{ borderColor: "color-mix(in srgb, var(--coral) 38%, transparent)" }}>
               <p className="font-disp font-semibold text-[15px] m-0" style={{ color: "var(--coral)" }}>No next action on this case</p>
               <p className="text-[12.5px] text-[var(--ink-dim)] mt-1 mb-4">It's silently sitting in “{c.stage}”. Open the next step so someone owns it.</p>
               <button className="btn btn-primary mx-auto" onClick={() => setShowNext(true)}>
