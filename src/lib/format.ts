@@ -27,7 +27,7 @@ export function parseDate(iso: string): Date {
 }
 
 export function daysBetween(aISO: string, bISO: string): number {
-  return Math.round((parseDate(aISO).getTime() - parseDate(bISO).getTime()) / -DAY);
+  return Math.round((parseDate(bISO).getTime() - parseDate(aISO).getTime()) / DAY);
 }
 
 export function ageDays(createdAtISO: string): number {
@@ -52,15 +52,15 @@ export function dueInfo(dueISO: string): DueInfo {
 
 export function fmtDate(iso: string): string {
   const d = iso.length > 10 ? new Date(iso) : parseDate(iso);
-  return d.toLocaleDateString("en-IN", { day: "2-digit", month: "short" });
+  return d.toLocaleDateString("en-GB", { day: "2-digit", month: "short" });
 }
 
 export function fmtDateTime(iso: string): string {
   const d = new Date(iso);
   return (
-    d.toLocaleDateString("en-IN", { day: "2-digit", month: "short" }) +
+    d.toLocaleDateString("en-GB", { day: "2-digit", month: "short" }) +
     " · " +
-    d.toLocaleTimeString("en-IN", { hour: "2-digit", minute: "2-digit", hour12: true })
+    d.toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit", hour12: true })
   );
 }
 
@@ -78,18 +78,57 @@ export function relTime(iso: string): string {
 
 /* ---------------- money (AED) ---------------- */
 
-export function fmtMoney(rupees: number): string {
-  if (Math.abs(rupees) >= 1e6) return `AED ${(rupees / 1e6).toFixed(2)}M`;
-  if (Math.abs(rupees) >= 1e3) return `AED ${(rupees / 1e3).toFixed(0)}K`;
-  return `AED ${Math.round(rupees)}`;
+export function fmtMoney(v: number): string {
+  if (Math.abs(v) >= 1e6) {
+    const m = (v / 1e6).toFixed(2).replace(/0+$/, "").replace(/\.$/, "");
+    return `AED ${m}M`;
+  }
+  if (Math.abs(v) >= 1e3) return `AED ${Math.round(v / 1e3)}K`;
+  return `AED ${Math.round(v)}`;
 }
 
-export const fmtMoneyCompact = (n: number): string =>
-  Math.abs(n) >= 1e6 ? `AED ${(n / 1e6).toFixed(1)}M` : `AED ${Math.round(n / 1e3)}K`;
-
-export function fmtRate(pct: number): string {
-  return `${pct}%`;
+export function fmtMoneyFull(v: number): string {
+  return `AED ${Math.round(v).toLocaleString("en-US")}`;
 }
+
+export function fmtRate(r: number): string {
+  return `${r}%`;
+}
+
+export const fmtMoneyCompact = fmtMoney;
+
+/* ---------------- commission engine ---------------- */
+
+export function rateFor(banks: BankItem[], name: string | null | undefined): number {
+  if (!name) return 0;
+  return banks.find((b) => b.name === name)?.ratePct ?? 0;
+}
+
+export const commissionOf = (ratePct: number, loanAmount: number) => (loanAmount * ratePct) / 100;
+
+export interface CommissionBreakdown {
+  bank: string | null;
+  ratePct: number;
+  gross: number; // our commission from the bank
+  partnerSharePct: number;
+  partnerCut: number; // paid to agent / broker / referrer
+  net: number; // what the firm keeps
+}
+
+export function commissionFor(c: LoanCase, banks: BankItem[]): CommissionBreakdown {
+  const bank = c.wonBank ?? c.banks[0] ?? null;
+  const ratePct = rateFor(banks, bank);
+  const gross = commissionOf(ratePct, c.loanAmount);
+  const partnerSharePct = c.partner?.sharePct ?? 0;
+  const partnerCut = (gross * partnerSharePct) / 100;
+  return { bank, ratePct, gross, partnerSharePct, partnerCut, net: gross - partnerCut };
+}
+
+export function primaryBank(c: LoanCase): string | null {
+  return c.wonBank ?? c.banks[0] ?? null;
+}
+
+/* ---------------- misc ---------------- */
 
 export function initials(name: string): string {
   return name
@@ -103,7 +142,7 @@ export function initials(name: string): string {
 /* ------------ status computation (never stored, always derived) ------------ */
 
 export function caseStatusOf(c: LoanCase, tasks: Task[]): CaseStatus {
-  if (c.caseStatus !== "Active" || c.stage === "Closure") return "On Track";
+  if (c.caseStatus !== "Active") return "On Track";
   const open = tasks.filter((t) => t.caseId === c.id && t.status === "Open");
   if (open.length === 0) return "No Action";
   const today = todayISO();
@@ -131,20 +170,6 @@ export const TONE_HEX: Record<Tone, string> = {
 
 export function openTasksOf(tasks: Task[], caseId: number): Task[] {
   return tasks.filter((t) => t.caseId === caseId && t.status === "Open");
-}
-
-/* ------------ banks & commission ------------ */
-
-export function primaryBank(c: LoanCase): string | null {
-  return c.wonBank ?? c.banks[0] ?? null;
-}
-
-export function commissionFor(c: LoanCase, banks: BankItem[]): { ratePct: number; gross: number; partnerCut: number; net: number } {
-  const bank = banks.find((b) => b.name === primaryBank(c));
-  const ratePct = bank?.ratePct ?? 0;
-  const gross = (c.loanAmount * ratePct) / 100;
-  const partnerCut = c.partner ? (gross * c.partner.sharePct) / 100 : 0;
-  return { ratePct, gross: Math.round(gross), partnerCut: Math.round(partnerCut), net: Math.round(gross - partnerCut) };
 }
 
 /* ------------ CSV export ------------ */
