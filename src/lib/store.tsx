@@ -8,6 +8,7 @@ import { seedDb } from "./data";
 import { computeAffordability } from "./calc";
 import type { CalcInput } from "./calc";
 import { ageDays, daysBetween, primaryBank, toISODate, todayISO } from "./format";
+import { fetchAppState, isSupabaseOn, saveAppState } from "./supabase";
 
 const DB_KEY = "meridian.casetracker.db.v6";
 const SESSION_KEY = "meridian.casetracker.session.v6";
@@ -269,12 +270,40 @@ export function StoreProvider({ children }: { children: ReactNode }) {
   const [toasts, setToasts] = useState<ToastMsg[]>([]);
   const toastId = useRef(0);
 
-  /* bulletin lifecycle: spawn routine instances for any day without one (capped, so a
-     returning user isn't flooded) and auto-resolve directives whose case has closed */
+  /* Boot: apply the bulletin lifecycle (spawn routines / resolve stale) to whatever
+     state we start with. When Supabase is configured, hydrate from the shared database
+     first, then apply the same lifecycle — so the whole team shares one source of truth. */
   useEffect(() => {
-    setDb((prev) => resolveStaleBulletins(spawnBulletinInstances(prev)));
+    let cancelled = false;
+    if (isSupabaseOn) {
+      fetchAppState().then((server) => {
+        if (cancelled) return;
+        setDb((prev) => resolveStaleBulletins(spawnBulletinInstances(server ?? prev)));
+      });
+    } else {
+      setDb((prev) => resolveStaleBulletins(spawnBulletinInstances(prev)));
+    }
+    return () => {
+      cancelled = true;
+    };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  /* Persist on every change: always keep a local copy (so the no-Supabase build works
+     and survives refresh), and when Supabase is configured, write the shared document
+     too — debounced so rapid edits batch into one save. */
+  useEffect(() => {
+    try {
+      localStorage.setItem(DB_KEY, JSON.stringify(db));
+    } catch {
+      /* storage full / private mode — non-fatal */
+    }
+    if (!isSupabaseOn) return;
+    const t = window.setTimeout(() => {
+      saveAppState(db).catch(() => undefined);
+    }, 700);
+    return () => window.clearTimeout(t);
+  }, [db]);
 
   useEffect(() => {
     const onHash = () => setRoute(parseHash());

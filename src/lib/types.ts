@@ -1,18 +1,11 @@
-export type Role =
-  | "Super Admin"
-  | "Head of Company"
-  | "PA to HoC"
-  | "Mortgage Head"
-  | "Team Leader SPO"
-  | "Team Leader VRM"
-  | "SPO"
-  | "VRM";
+export type Role = string; // open — designations are admin-managed
 
 export type CaseStatus = "On Track" | "At Risk" | "Overdue" | "No Action";
 export type TaskStatus = "Open" | "Done";
 export type CaseState = "Active" | "Closed" | "Lost";
 export type CaseSource = "Direct" | "Agent" | "Broker" | "Website" | "Referral";
 export type PartnerKind = "Agent" | "Broker" | "Referral";
+export type RepeatKind = "none" | "daily" | "weekdays";
 
 export interface User {
   id: number;
@@ -65,7 +58,7 @@ export interface Task {
   caseId: number;
   description: string;
   ownerId: number;
-  createdBy: number;
+  createdBy: number; // who opened / assigned the task
   waitingFor: string;
   whyPending: string;
   createdAt: string;
@@ -83,39 +76,6 @@ export interface Activity {
   action: string;
   oldValue?: string;
   newValue?: string;
-}
-
-export interface MasterItem {
-  id: number;
-  label: string;
-  active: boolean;
-}
-
-export interface StageItem extends MasterItem {
-  sortOrder: number;
-}
-
-export interface BankItem {
-  id: number;
-  name: string;
-  ratePct: number;
-  active: boolean;
-}
-
-export interface PartnerItem {
-  id: number;
-  kind: PartnerKind;
-  name: string;
-  defaultSharePct: number;
-  active: boolean;
-}
-
-export interface SlaRule {
-  id: number;
-  stage: string;
-  bank: string | null;
-  maxDays: number;
-  active: boolean;
 }
 
 export interface Reply {
@@ -138,26 +98,59 @@ export interface Instruction {
   replies: Reply[];
 }
 
-export type RepeatKind = "none" | "daily" | "weekdays";
-
-/* a dated directive broadcast to teammates — the "morning bulletin" feed */
 export interface BulletinItem {
   id: number;
   date: string; // ISO date this directive belongs to
   issuedBy: number;
   task: string;
   caseId: number | null; // optional — pins the directive to a case
-  targets: number[]; // user ids addressed
+  targets: number[];
   status: "Open" | "Done";
   completedAt: string | null;
   completedBy: number | null;
   createdAt: string;
   replies: Reply[];
-  carriedFrom?: string | null; // carried forward from this earlier date
-  dropped?: boolean; // closed as dropped, not completed
-  repeat?: RepeatKind; // "daily" | "weekdays" on templates only
+  carriedFrom?: string | null;
+  dropped?: boolean;
+  repeat?: RepeatKind; // on templates only
   templateId?: number | null; // spawned instances point back to their template
   isTemplate?: boolean; // hidden from the feed; spawns one instance per eligible day
+}
+
+export interface SlaRule {
+  id: number;
+  stage: string;
+  bank: string | null; // null = all banks
+  maxDays: number;
+  active: boolean;
+}
+
+export interface StageItem {
+  id: number;
+  label: string;
+  active: boolean;
+  sortOrder: number;
+}
+
+export interface MasterItem {
+  id: number;
+  label: string;
+  active: boolean;
+}
+
+export interface BankItem {
+  id: number;
+  name: string;
+  ratePct: number; // our commission rate on the loan amount
+  active: boolean;
+}
+
+export interface PartnerItem {
+  id: number;
+  kind: PartnerKind;
+  name: string;
+  defaultSharePct: number; // % of OUR commission owed to them
+  active: boolean;
 }
 
 export interface AffordabilityCheck {
@@ -184,7 +177,7 @@ export interface AffordabilityCheck {
   eligible: boolean;
   createdBy: number;
   createdAt: string;
-  payload?: string; // JSON snapshot of full mortgage input + result
+  payload?: string; // JSON snapshot of full mortgage input
 }
 
 export interface DB {
@@ -218,13 +211,3 @@ export type Tone = "mint" | "amber" | "coral" | "sky" | "slate";
 
 export const SOURCES: CaseSource[] = ["Direct", "Agent", "Broker", "Website", "Referral"];
 export const PARTNER_SHARES = [10, 15, 20, 30];
-export const ROLE_SENIORITY = [
-  "Super Admin",
-  "Head of Company",
-  "PA to HoC",
-  "Mortgage Head",
-  "Team Leader SPO",
-  "Team Leader VRM",
-  "SPO",
-  "VRM",
-];
