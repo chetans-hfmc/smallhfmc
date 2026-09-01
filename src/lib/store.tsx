@@ -10,8 +10,8 @@ import type { CalcInput } from "./calc";
 import { ageDays, daysBetween, primaryBank, toISODate, todayISO } from "./format";
 import { fetchAppState, isSupabaseOn, saveAppState } from "./supabase";
 
-const DB_KEY = "meridian.casetracker.db.v6";
-const SESSION_KEY = "meridian.casetracker.session.v6";
+const DB_KEY = "meridian.casetracker.db.v10";
+const SESSION_KEY = "meridian.casetracker.session.v10";
 
 export interface ToastMsg {
   id: number;
