@@ -24,8 +24,10 @@ class ErrorBoundary extends React.Component<{ children: React.ReactNode }, { err
             <button
               onClick={() => {
                 try {
-                  localStorage.removeItem("hfmc.casetracker.db.v9");
-                  localStorage.removeItem("hfmc.casetracker.session.v9");
+                  localStorage.removeItem("meridian.casetracker.db.v10");
+                  localStorage.removeItem("meridian.casetracker.session.v10");
+                  localStorage.removeItem("meridian.casetracker.db.v6");
+                  localStorage.removeItem("meridian.casetracker.session.v6");
                 } catch {
                   /* ignore */
                 }
