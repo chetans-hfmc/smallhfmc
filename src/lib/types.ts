@@ -180,6 +180,22 @@ export interface AffordabilityCheck {
   payload?: string; // JSON snapshot of full mortgage input
 }
 
+/* one email that flowed through the SalesProgressionDL / VIRTUALRM1 group mailboxes */
+export interface EmailLog {
+  id: string; // Graph message id, or "sim-N" for simulated inbox items
+  subject: string;
+  fromName: string;
+  fromAddress: string;
+  direction: "out" | "in"; // out = our query to the bank · in = reply from bank / client
+  customer: string | null; // parsed from the subject line
+  bank: string | null; // parsed from the subject line
+  caseId: number | null; // linked pipeline case
+  receivedAt: string; // ISO timestamp
+  snippet: string;
+  linkedAt: string | null;
+  linkedBy: number | null;
+}
+
 export interface DB {
   version: number;
   users: User[];
@@ -196,6 +212,7 @@ export interface DB {
   instructions: Instruction[];
   bulletin: BulletinItem[];
   affordabilityChecks: AffordabilityCheck[];
+  emails: EmailLog[];
 }
 
 export type Route =
@@ -203,6 +220,7 @@ export type Route =
   | { name: "case"; id: number }
   | { name: "tasks" }
   | { name: "bulletin" }
+  | { name: "emails" }
   | { name: "calculator" }
   | { name: "reports" }
   | { name: "admin" };

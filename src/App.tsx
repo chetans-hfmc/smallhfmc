@@ -6,6 +6,7 @@ import Dashboard from "./views/Dashboard";
 import CaseDetail from "./views/CaseDetail";
 import Tasks from "./views/Tasks";
 import Bulletin from "./views/Bulletin";
+import Emails from "./views/Emails";
 import Reports from "./views/Reports";
 import Admin from "./views/Admin";
 import Calculator from "./views/Calculator";
@@ -29,6 +30,7 @@ function Router() {
         {route.name === "case" && <CaseDetail id={route.id} />}
         {route.name === "tasks" && <Tasks />}
         {route.name === "bulletin" && <Bulletin />}
+        {route.name === "emails" && <Emails />}
         {route.name === "calculator" && <Calculator />}
         {route.name === "reports" && <Reports />}
         {route.name === "admin" && <Admin />}

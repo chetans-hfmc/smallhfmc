@@ -6,7 +6,7 @@ import { bulletinVisible, computeEscalations, useStore } from "../lib/store";
 import { fmtMoney, inDaysISO, todayISO } from "../lib/format";
 import { Avatar, Chip, Modal, ThemeToggle } from "./ui";
 import {
-  IBank, IBriefcase, ICalc, IChart, IFlag, IGrid, ILogout, IPlus, IShield, ITasks, LogoMark,
+  IBank, IBriefcase, ICalc, IChart, IFlag, IGrid, IInbox, ILogout, IPlus, IShield, ITasks, LogoMark,
 } from "./icons";
 
 function Clock() {
