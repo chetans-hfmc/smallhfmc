@@ -1,7 +1,7 @@
 import { createContext, useCallback, useContext, useEffect, useRef, useState } from "react";
 import type { ReactNode } from "react";
 import type {
-  Activity, AffordabilityCheck, BankItem, BulletinItem, CasePartner, CaseSource, CaseState, DB, Designation, LoanCase, MasterItem,
+  Activity, AffordabilityCheck, BankItem, BulletinItem, CasePartner, CaseSource, CaseState, DB, Designation, EmailLog, LoanCase, MasterItem,
   PartnerItem, PartnerKind, Route, SlaRule, StageItem, Task, User,
 } from "./types";
 import { seedDb } from "./data";
@@ -10,8 +10,8 @@ import type { CalcInput } from "./calc";
 import { ageDays, daysBetween, primaryBank, toISODate, todayISO } from "./format";
 import { fetchAppState, isSupabaseOn, saveAppState } from "./supabase";
 
-const DB_KEY = "meridian.casetracker.db.v6";
-const SESSION_KEY = "meridian.casetracker.session.v6";
+const DB_KEY = "meridian.casetracker.db.v10";
+const SESSION_KEY = "meridian.casetracker.session.v10";
 
 export interface ToastMsg {
   id: number;
@@ -217,6 +217,9 @@ interface StoreShape {
   visibleTasks: () => Task[];
   canEditCase: (c: LoanCase) => boolean;
   canEditTask: (t: Task) => boolean;
+  ingestEmails: (list: EmailLog[]) => { added: number; matched: number };
+  linkEmail: (emailId: string, caseId: number) => void;
+  logEmailSent: (caseId: number, subject: string) => void;
 }
 
 const Ctx = createContext<StoreShape | null>(null);
@@ -227,6 +230,7 @@ function parseHash(): Route {
   if (a === "case" && b && !Number.isNaN(parseInt(b, 10))) return { name: "case", id: parseInt(b, 10) };
   if (a === "tasks") return { name: "tasks" };
   if (a === "bulletin") return { name: "bulletin" };
+  if (a === "emails") return { name: "emails" };
   if (a === "calculator") return { name: "calculator" };
   if (a === "reports") return { name: "reports" };
   if (a === "admin") return { name: "admin" };
@@ -247,12 +251,36 @@ export function routeToHash(r: Route): string {
 const nextId = (arr: { id: number }[]) => arr.reduce((m, x) => Math.max(m, x.id), 0) + 1;
 const nowISO = () => new Date().toISOString();
 
+/* Validate every collection before trusting stored data — a corrupted or
+   half-written payload must never be able to blank the screen. */
+function isValidDb(p: unknown): p is DB {
+  if (!p || typeof p !== "object") return false;
+  const d = p as DB;
+  return (
+    Array.isArray(d.users) &&
+    Array.isArray(d.designations) &&
+    Array.isArray(d.cases) &&
+    Array.isArray(d.tasks) &&
+    Array.isArray(d.activities) &&
+    Array.isArray(d.stages) &&
+    Array.isArray(d.whyPending) &&
+    Array.isArray(d.waitingFor) &&
+    Array.isArray(d.banks) &&
+    Array.isArray(d.partners) &&
+    Array.isArray(d.slaRules) &&
+    Array.isArray(d.instructions) &&
+    Array.isArray(d.bulletin) &&
+    Array.isArray(d.affordabilityChecks) &&
+    Array.isArray(d.emails)
+  );
+}
+
 function loadDb(): DB {
   try {
     const raw = localStorage.getItem(DB_KEY);
     if (raw) {
       const parsed = JSON.parse(raw) as DB;
-      if (parsed && parsed.version === 9 && Array.isArray(parsed.designations) && Array.isArray(parsed.bulletin)) return parsed;
+      if (parsed && parsed.version === 10 && isValidDb(parsed)) return parsed;
     }
   } catch {
     /* fall through to seed */
@@ -278,7 +306,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     if (isSupabaseOn) {
       fetchAppState().then((server) => {
         if (cancelled) return;
-        setDb((prev) => resolveStaleBulletins(spawnBulletinInstances(server ?? prev)));
+        setDb((prev) => resolveStaleBulletins(spawnBulletinInstances(isValidDb(server) ? server : prev)));
       });
     } else {
       setDb((prev) => resolveStaleBulletins(spawnBulletinInstances(prev)));
@@ -875,6 +903,71 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     [session]
   );
 
+  /* ---------------- email log (Outlook / Graph) ---------------- */
+
+  /* upsert by message id; auto-links emails whose customer+bank matched a live case */
+  const ingestEmails = useCallback((list: EmailLog[]): { added: number; matched: number } => {
+    let added = 0;
+    let matched = 0;
+    setDb((prev) => {
+      const existing = new Set(prev.emails.map((e) => e.id));
+      const fresh = list.filter((e) => !existing.has(e.id));
+      added = fresh.length;
+      matched = fresh.filter((e) => e.caseId != null).length;
+      return { ...prev, emails: [...fresh, ...prev.emails].sort((a, b) => b.receivedAt.localeCompare(a.receivedAt)) };
+    });
+    return { added, matched };
+  }, []);
+
+  const linkEmail = useCallback(
+    (emailId: string, caseId: number) => {
+      const me = session;
+      setDb((prev) => {
+        const email = prev.emails.find((e) => e.id === emailId);
+        if (!email) return prev;
+        const c = prev.cases.find((x) => x.id === caseId);
+        let acts = prev.activities;
+        if (c) acts = logAct(acts, caseId, me?.id ?? 0, "Email linked", email.direction === "out" ? "query sent" : "reply received", email.subject);
+        return {
+          ...prev,
+          emails: prev.emails.map((e) =>
+            e.id === emailId ? { ...e, caseId, linkedAt: nowISO(), linkedBy: me?.id ?? null } : e
+          ),
+          activities: acts,
+        };
+      });
+    },
+    [session]
+  );
+
+  const logEmailSent = useCallback(
+    (caseId: number, subject: string) => {
+      const me = session;
+      setDb((prev) => ({
+        ...prev,
+        emails: [
+          {
+            id: `out-${Date.now()}`,
+            subject,
+            fromName: me?.name ?? "HFMC",
+            fromAddress: "operations@hfmcgroupuae.com",
+            direction: "out" as const,
+            customer: prev.cases.find((c) => c.id === caseId)?.customer ?? null,
+            bank: prev.cases.find((c) => c.id === caseId)?.banks[0] ?? null,
+            caseId,
+            receivedAt: nowISO(),
+            snippet: "Composed in Outlook · CC SalesProgressionDL, VIRTUALRM1",
+            linkedAt: nowISO(),
+            linkedBy: me?.id ?? null,
+          },
+          ...prev.emails,
+        ],
+        activities: logAct(prev.activities, caseId, me?.id ?? 0, "Query email sent (Outlook)", undefined, subject),
+      }));
+    },
+    [session]
+  );
+
   /* ---------------- affordability ---------------- */
 
   const runCheck = useCallback(
@@ -923,6 +1016,14 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       if (!k || !me) return null;
       const banks = submitToBank && k.bank ? [k.bank] : [];
       const maxNum = db.cases.reduce((m, c) => Math.max(m, parseInt(c.caseNumber.split("-")[1] ?? "0", 10)), 0);
+      let whatsapp = "";
+      if (k.payload) {
+        try {
+          whatsapp = (JSON.parse(k.payload) as { input?: { whatsapp?: string } }).input?.whatsapp ?? "";
+        } catch {
+          /* corrupt payload — ignore */
+        }
+      }
       const c: LoanCase = {
         id: nextId(db.cases),
         caseNumber: `CASE-${String(maxNum + 1).padStart(6, "0")}`,
@@ -936,7 +1037,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
         ownerId: me.id,
         source: "Direct",
         partner: null,
-        whatsapp: k.payload ? (JSON.parse(k.payload) as { input?: { whatsapp?: string } }).input?.whatsapp ?? "" : "",
+        whatsapp,
         waGroup: null,
         createdAt: nowISO(),
         updatedAt: nowISO(),
@@ -1261,6 +1362,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     addBank, updateBankRate, toggleBank, deleteBank,
     addPartner, updatePartnerShare, togglePartner, deletePartner,
     saveSla, toggleSla, deleteSla,
+    ingestEmails, linkEmail, logEmailSent,
     userById, visibleCases, visibleTasks, canEditCase, canEditTask,
   };
 

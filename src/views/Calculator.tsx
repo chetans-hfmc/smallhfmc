@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import type { ReactNode } from "react";
 import { useStore } from "../lib/store";
 import type { AffordabilityCheck } from "../lib/types";
@@ -15,7 +15,7 @@ import { relTime } from "../lib/format";
 import { Avatar, Chip } from "../components/ui";
 import { ConfirmModal } from "../components/bits";
 import { useCountUp } from "../components/charts";
-import { IArrowR, ICalc, IDownload, IEye, IPlus, ITrash, IX } from "../components/icons";
+import { IArrowR, ICalc, IChevronL, IDownload, IEye, IPlus, ITrash, IX } from "../components/icons";
 
 /* ---------- small building blocks ---------- */
 
@@ -93,6 +93,101 @@ function normalizeInput(raw: Partial<MortgageInput>): MortgageInput {
   } as MortgageInput;
 }
 
+function ToolCard({ title, children, out, note }: { title: string; children: ReactNode; out: string; note: string }) {
+  return (
+    <div className="card card-hover p-4">
+      <div className="text-[10.5px] uppercase tracking-[0.12em] font-disp font-semibold text-[var(--ink-faint)] mb-2.5">{title}</div>
+      {children}
+      <div className="mono text-[19px] font-semibold mt-2.5" style={{ color: "var(--mint)" }}>{out}</div>
+      <div className="text-[11px] text-[var(--ink-faint)] mt-0.5">{note}</div>
+    </div>
+  );
+}
+
+function QuickTools({ input, r }: { input: MortgageInput; r: MortgageResult }) {
+  const [finance, setFinance] = useState(1000000);
+  const [propVal, setPropVal] = useState(1500000);
+  const [reqFin, setReqFin] = useState(1200000);
+
+  const reqEmi = emiFor(finance, r.assessmentRate, r.maxTenorMonths);
+  const reqIncome = reqEmi / 0.5 + r.existingEmis;
+  const maxProp = r.ltvPct > 0 ? r.dbrMpbf / (r.ltvPct / 100) : 0;
+  const ltvCap = (propVal * r.ltvPct) / 100;
+  const funded = Math.min(reqFin, ltvCap);
+  const reqDp = Math.max(0, propVal - funded);
+
+  return (
+    <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+      <ToolCard
+        title="Required income"
+        out={fmtAED(reqIncome)}
+        note={`eligible monthly income needed · ${r.assessmentRate.toFixed(2)}% over ${tenorLabel(r.maxTenorMonths)} · incl. existing EMIs`}
+      >
+        <label className="label">Desired finance (AED)</label>
+        <NumIn value={finance} onChange={setFinance} step={50000} />
+      </ToolCard>
+      <ToolCard
+        title="Maximum property value"
+        out={fmtAED(maxProp)}
+        note={`income supports ${fmtAED(r.dbrMpbf)} at ${r.ltvPct}% LTV (${input.applicantType})`}
+      >
+        <label className="label">Based on current eligible income</label>
+        <div className="text-[12px] text-[var(--ink-dim)]">DBR MPBF {fmtAED(r.dbrMpbf)} ÷ {r.ltvPct}% LTV</div>
+      </ToolCard>
+      <ToolCard
+        title="Required down payment"
+        out={fmtAED(reqDp)}
+        note={reqFin > ltvCap ? `bank funds at most ${fmtAED(ltvCap)} at ${r.ltvPct}% LTV — rest is cash` : "requested finance fits inside the LTV cap"}
+      >
+        <div className="grid grid-cols-2 gap-2">
+          <div>
+            <label className="label">Property (AED)</label>
+            <NumIn value={propVal} onChange={setPropVal} step={50000} />
+          </div>
+          <div>
+            <label className="label">Finance (AED)</label>
+            <NumIn value={reqFin} onChange={setReqFin} step={50000} />
+          </div>
+        </div>
+      </ToolCard>
+    </div>
+  );
+}
+
+function ScenarioTable({ rows, base, delta }: {
+  rows: { label: string; dbr: number; residual: number; mpbf: number }[];
+  base: number;
+  delta: (v: number) => ReactNode;
+}) {
+  return (
+    <div className="overflow-x-auto">
+      <table className="tbl" style={{ minWidth: 560 }}>
+        <thead>
+          <tr>
+            <th>Scenario</th>
+            <th>Current DBR</th>
+            <th>Residual DBR</th>
+            <th>Final MPBF</th>
+            <th>Change</th>
+          </tr>
+        </thead>
+        <tbody>
+          {rows.map((row, i) => (
+            <tr key={row.label + i} style={{ cursor: "default" }} className={i === 0 ? "anim-fade-in" : ""}>
+              <td className={i === 0 ? "font-semibold" : ""}>{row.label}</td>
+              <td className="mono text-[12.5px]">{fmtPct(row.dbr)}</td>
+              <td className="mono text-[12.5px]" style={{ color: "var(--mint)" }}>{fmtPct(row.residual)}</td>
+              <td className="mono font-semibold">{fmtAED(row.mpbf)}</td>
+              <td className="mono text-[12.5px]">{i === 0 ? <span className="text-[var(--ink-faint)]">baseline</span> : delta(row.mpbf)}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+      <span className="hidden">{base}</span>
+    </div>
+  );
+}
+
 /* ---------- main view ---------- */
 
 type WhifTab = "liab" | "rate" | "tenor" | "income";
@@ -111,6 +206,8 @@ export default function Calculator() {
   const [extraIncome, setExtraIncome] = useState("");
   const [clientMode, setClientMode] = useState<"trial" | "existing">("trial");
   const [existingCaseId, setExistingCaseId] = useState<number | null>(null);
+  const resultsRef = useRef<HTMLDivElement>(null);
+  const scrollToResults = () => resultsRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
 
   const up = (patch: Partial<MortgageInput>) => setInput((p) => ({ ...p, ...patch }));
 
@@ -127,6 +224,8 @@ export default function Calculator() {
   };
   const r = useMemo(() => computeMortgage(input), [input]);
   const mpbfDisplay = useCountUp(r.finalMpbf, 550);
+
+  const sourcePool = input.employment === "Self-Employed" ? SE_SOURCES : SALARIED_SOURCES;
 
   const setEmployment = (emp: string) => {
     const employment = emp === "Self-Employed" ? ("Self-Employed" as const) : ("Salaried" as const);
@@ -229,19 +328,13 @@ export default function Calculator() {
     rate: r.assessmentRate, tenorMonths: r.maxTenorMonths, ltv: r.actualLtv, eligible: r.finalMpbf > 0,
   });
 
-  const saveCheck = (): number => {
-    const id = saveMortgageCheck(
+  const onSave = () => {
+    saveMortgageCheck(
       input.name || "Unnamed applicant",
       input.whatsapp,
       JSON.stringify({ v: 1, input }),
       summaryFor()
     );
-    setSavedId(id);
-    return id;
-  };
-
-  const onSave = () => {
-    saveCheck();
     toast("success", "Check saved to the audit trail — no case was created.");
   };
 
@@ -272,8 +365,8 @@ export default function Calculator() {
   /* scenario builders that work for any saved input (audit-trail reports) */
   const liabScenariosOf = (src: MortgageInput) => {
     const rows: { label: string; input: MortgageInput }[] = [];
-    const cards = src.liabilities.filter((x) => x.type === "Credit Card");
-    if (cards.length) {
+    const c2 = src.liabilities.filter((x) => x.type === "Credit Card");
+    if (c2.length) {
       rows.push({ label: "Credit cards −25%", input: scenarioCardsPct(src, 0.75) });
       rows.push({ label: "Credit cards −50%", input: scenarioCardsPct(src, 0.5) });
       rows.push({ label: "Credit cards removed", input: scenarioRemoveCards(src) });
@@ -282,160 +375,118 @@ export default function Calculator() {
       rows.push({ label: `Remove ${l.name || l.type}`, input: scenarioRemoveLiab(src, l.id) });
     return rows;
   };
-  const incomeScenariosOf = (src: MortgageInput) =>
-    src.incomes.map((row) => ({ label: `Remove ${row.source}`, input: scenarioIncomeRemove(src, row.id) }));
+  const incomeScenariosOf = (src: MortgageInput) => {
+    const rows: { label: string; input: MortgageInput }[] = [];
+    for (const row of src.incomes) {
+      rows.push({ label: `Remove ${row.source}`, input: scenarioIncomeRemove(src, row.id) });
+      rows.push({ label: `${row.source} −25%`, input: scenarioIncomePct(src, row.id, 0.75) });
+    }
+    return rows;
+  };
 
-  const buildScenarioTablesFor = (src: MortgageInput, base: MortgageResult): PdfScenarioTable[] => {
-    const run = (list: { label: string; input: MortgageInput }[]) =>
-      list.map((s) => {
-        const sr = computeMortgage(s.input);
-        return { label: s.label, dbr: sr.currentDbr, residual: sr.residualDbr, mpbf: sr.finalMpbf, extra: sr.eligibleIncome, rate: sr.assessmentRate, tenor: sr.maxTenorMonths };
-      });
-    const liabRows = run(liabScenariosOf(src));
-    const rateRows = run([1, 2, 3].map((n) => ({ label: `Stress +${n}%`, input: scenarioRate(src, src.actualRate + src.loadFactor + n) })));
-    const tenorRows = run([15, 20, 25].map((yy) => ({ label: `${yy} years`, input: scenarioTenor(src, yy * 12) })));
-    const incomeRows = run(incomeScenariosOf(src));
-    const dlt = (v: number) => (v >= 0 ? "+" : "−") + fmtAED(Math.abs(v));
-    const mk = (title: string, head: string[], rows: { label: string }[], cells: (row: (typeof liabRows)[number], i: number) => (string | number)[]) => ({
-      title, head,
-      body: rows.map((row, i) => [row.label, ...cells(row as (typeof liabRows)[number], i)]),
-    });
+  const buildScenarioTablesFor = (src: MortgageInput, sr: MortgageResult): PdfScenarioTable[] => {
+    const liab = runScenarios(liabScenariosOf(src));
+    const rate = [1, 2, 3].map((n) => ({ label: `Stress +${n}%`, input: scenarioRate(src, sr.assessmentRate + n) }));
+    const tenor = [15, 20, 25].map((y) => ({ label: `${y} years`, input: scenarioTenor(src, y * 12) }));
+    const income = runScenarios(incomeScenariosOf(src));
+    const d = (v: number) => {
+      const dd = v - sr.finalMpbf;
+      return Math.abs(dd) < 1 ? "—" : `${dd > 0 ? "+" : "−"}${fmtAED(Math.abs(dd))}`;
+    };
     return [
-      mk("Liability scenarios", ["Scenario", "Current DBR", "Residual DBR", "MPBF", "Change"], [{ label: "Current (baseline)" }, ...liabRows], (row, i) =>
-        i === 0
-          ? [fmtPct(base.currentDbr), fmtPct(base.residualDbr), fmtAED(base.finalMpbf), "—"]
-          : [fmtPct(row.dbr), fmtPct(row.residual), fmtAED(row.mpbf), dlt(row.mpbf - base.finalMpbf)]),
-      mk("Rate scenarios", ["Scenario", "Assessment rate", "MPBF", "Change"], [{ label: `Current (${base.assessmentRate.toFixed(2)}%)` }, ...rateRows], (row, i) =>
-        i === 0 ? [fmtPct(base.assessmentRate), fmtAED(base.finalMpbf), "—"] : [fmtPct(row.rate), fmtAED(row.mpbf), dlt(row.mpbf - base.finalMpbf)]),
-      mk("Tenor scenarios", ["Scenario", "Tenor", "MPBF", "Change"], [{ label: `Current max (${tenorLabel(base.maxTenorMonths)})` }, ...tenorRows], (row, i) =>
-        i === 0 ? [tenorLabel(base.maxTenorMonths), fmtAED(base.finalMpbf), "—"] : [tenorLabel(row.tenor), fmtAED(row.mpbf), dlt(row.mpbf - base.finalMpbf)]),
-      mk("Income scenarios", ["Scenario", "Eligible income", "MPBF", "Change"], [{ label: "Current (baseline)" }, ...incomeRows], (row, i) =>
-        i === 0 ? [fmtAED(base.eligibleIncome), fmtAED(base.finalMpbf), "—"] : [fmtAED(row.extra), fmtAED(row.mpbf), dlt(row.mpbf - base.finalMpbf)]),
+      {
+        title: "Liability scenarios",
+        head: ["Scenario", "Current DBR", "Residual DBR", "MPBF", "Change"],
+        body: [{ label: "Baseline", dbr: sr.currentDbr, residual: sr.residualDbr, mpbf: sr.finalMpbf }, ...liab].map((x) => [
+          x.label, fmtPct(x.dbr), fmtPct(x.residual), fmtAED(x.mpbf), x.label === "Baseline" ? "—" : d(x.mpbf),
+        ]),
+      },
+      {
+        title: "Rate scenarios",
+        head: ["Scenario", "Assessment rate", "MPBF", "Change"],
+        body: [{ label: `Baseline · ${fmtPct(sr.assessmentRate)}`, rate: sr.assessmentRate, mpbf: sr.finalMpbf }, ...runScenarios(rate)].map((x) => [
+          x.label, fmtPct(x.rate), fmtAED(x.mpbf), x.label.startsWith("Baseline") ? "—" : d(x.mpbf),
+        ]),
+      },
+      {
+        title: "Tenor scenarios",
+        head: ["Scenario", "Tenor", "MPBF", "Change"],
+        body: [{ label: `Baseline · ${tenorLabel(sr.maxTenorMonths)}`, tenor: sr.maxTenorMonths, mpbf: sr.finalMpbf }, ...runScenarios(tenor)].map((x) => [
+          x.label, tenorLabel(x.tenor), fmtAED(x.mpbf), x.label.startsWith("Baseline") ? "—" : d(x.mpbf),
+        ]),
+      },
+      {
+        title: "Income scenarios",
+        head: ["Scenario", "Eligible income", "MPBF", "Change"],
+        body: [{ label: "Baseline", extra: sr.eligibleIncome, mpbf: sr.finalMpbf }, ...income].map((x) => [
+          x.label, fmtAED(x.extra), fmtAED(x.mpbf), x.label === "Baseline" ? "—" : d(x.mpbf),
+        ]),
+      },
     ];
   };
 
-  const buildScenarioTables = (): PdfScenarioTable[] => {
-    const liabRows = runScenarios(liabScenarios);
-    const rateRows = runScenarios(rateScenarios);
-    const tenorRows = runScenarios(tenorScenarios);
-    const incomeRows = runScenarios(incomeScenarios);
-    const delta = (v: number) => (v >= 0 ? "+" : "−") + fmtAED(Math.abs(v));
-    const mk = (title: string, head: string[], rows: { label: string }[], cells: (row: (typeof liabRows)[number], i: number) => (string | number)[]) => ({
-      title, head,
-      body: rows.map((row, i) => [row.label, ...cells(row as (typeof liabRows)[number], i)]),
-    });
-    return [
-      mk("Liability scenarios", ["Scenario", "Current DBR", "Residual DBR", "MPBF", "Change"], [{ label: "Current (baseline)" }, ...liabRows], (row, i) =>
-        i === 0
-          ? [fmtPct(r.currentDbr), fmtPct(r.residualDbr), fmtAED(r.finalMpbf), "—"]
-          : [fmtPct(row.dbr), fmtPct(row.residual), fmtAED(row.mpbf), delta(row.mpbf - r.finalMpbf)]),
-      mk("Rate scenarios", ["Scenario", "Assessment rate", "MPBF", "Change"], [{ label: `Current (${r.assessmentRate.toFixed(2)}%)` }, ...rateRows], (row, i) =>
-        i === 0 ? [fmtPct(r.assessmentRate), fmtAED(r.finalMpbf), "—"] : [fmtPct(row.rate), fmtAED(row.mpbf), delta(row.mpbf - r.finalMpbf)]),
-      mk("Tenor scenarios", ["Scenario", "Tenor", "MPBF", "Change"], [{ label: `Current max (${tenorLabel(r.maxTenorMonths)})` }, ...tenorRows], (row, i) =>
-        i === 0 ? [tenorLabel(r.maxTenorMonths), fmtAED(r.finalMpbf), "—"] : [tenorLabel(row.tenor), fmtAED(row.mpbf), delta(row.mpbf - r.finalMpbf)]),
-      mk("Income scenarios", ["Scenario", "Eligible income", "MPBF", "Change"], [{ label: "Current (baseline)" }, ...incomeRows], (row, i) =>
-        i === 0 ? [fmtAED(r.eligibleIncome), fmtAED(r.finalMpbf), "—"] : [fmtAED(row.extra), fmtAED(row.mpbf), delta(row.mpbf - r.finalMpbf)]),
-    ];
-  };
-
-  const buildReport = () => {
-    const tables = buildScenarioTables();
+  const savePdf = () => {
+    const tables = buildScenarioTablesFor(input, r);
     const liab = runScenarios(liabScenarios);
     const income = runScenarios(incomeScenarios);
-    const candidates = [
-      ...liab.map((s) => ({ label: s.label, d: s.mpbf - r.finalMpbf, dbr: s.dbr })),
-      ...income.map((s) => ({ label: s.label, d: s.mpbf - r.finalMpbf, dbr: s.dbr })),
-    ]
+    const best = [...liab, ...income]
+      .map((s) => ({ label: s.label, d: s.mpbf - r.finalMpbf, dbr: s.dbr }))
       .filter((c) => c.d > 5000)
-      .sort((a, b) => b.d - a.d);
-    const obs =
-      candidates.length === 0
-        ? `No liability or income scenario meaningfully improves the baseline ${fmtAED(r.finalMpbf)} — the binding constraint is ${r.limitedBy.toLowerCase()}. Movement must come from income, liabilities or the property itself.`
-        : `Strongest lever: ${candidates[0].label} — DBR moves ${fmtPct(r.currentDbr)} → ${fmtPct(candidates[0].dbr)}, unlocking ${fmtAED(candidates[0].d)} of additional MPBF (${fmtAED(r.finalMpbf)} → ${fmtAED(r.finalMpbf + candidates[0].d)}).`;
-    return { tables, obs };
-  };
-
-  const onPdf = () => {
-    const { tables, obs } = buildReport();
+      .sort((a, b) => b.d - a.d)[0];
+    const obs = best
+      ? `Strongest lever: ${best.label} — DBR moves ${fmtPct(r.currentDbr)} → ${fmtPct(best.dbr)}, unlocking ${fmtAED(best.d)} of additional MPBF.`
+      : `No scenario improves the baseline ${fmtAED(r.finalMpbf)} — the binding constraint is ${r.limitedBy.toLowerCase()}.`;
     generateMortgagePdf(input, r, tables, session?.name ?? "HFMC", obs);
-    toast("success", "Bank-facing PDF downloaded.");
+    toast("success", "PDF downloaded.");
   };
 
-  const onView = () => {
-    const { tables, obs } = buildReport();
-    setPreview({ input, res: r, tables, by: session?.name ?? "HFMC", obs });
-  };
+  const checks = db.affordabilityChecks.filter((k) => true).sort((a, b) => b.id - a.id);
 
   /* ---------------- render ---------------- */
 
-  const caps = [
-    { label: "DBR / Residual DBR MPBF", v: r.dbrMpbf },
-    { label: "LTV MPBF", v: r.ltvMpbf },
-    ...(r.multiplierCap != null ? [{ label: `Income multiplier (${input.multiplierX}×)`, v: r.multiplierCap }] : []),
-    ...(r.requested > 0 ? [{ label: "Requested finance", v: r.requested }] : []),
-  ];
-  const capMax = Math.max(...caps.map((c) => c.v), 1);
-
-  const checks = [...db.affordabilityChecks].sort((a, b) => b.id - a.id);
-  const sourcePool = input.employment === "Self-Employed" ? SE_SOURCES : SALARIED_SOURCES;
-
   return (
-    <div className="space-y-4">
-      <div className="flex flex-wrap items-end justify-between gap-3">
-        <div>
-          <h1 className="font-disp font-bold text-[24px] tracking-tight m-0 flex items-center gap-2.5">
-            <ICalc size={22} className="text-[var(--amber)]" /> Mortgage Eligibility Calculator
-          </h1>
-          <p className="text-[13px] text-[var(--ink-dim)] mt-0.5 mb-0">
-            Preliminary MPBF assessment · CBUAE-style DBR {fmtPct(50)} cap · <em>not</em> a bank approval
-          </p>
+    <div className="space-y-5">
+      {/* client chooser */}
+      <div className="card p-4 anim-fade-up flex flex-wrap items-center gap-3">
+        <div className="flex rounded-lg overflow-hidden border" style={{ borderColor: "var(--line)" }}>
+          {(["trial", "existing"] as const).map((m) => (
+            <button
+              key={m}
+              className="px-3.5 py-2 text-[12.5px] font-disp font-semibold transition-all"
+              style={clientMode === m ? { background: "var(--amber-tint)", color: "var(--amber)" } : { color: "var(--ink-faint)", background: "transparent" }}
+              onClick={() => setClientMode(m)}
+            >
+              {m === "trial" ? "New client · trial" : "Existing client"}
+            </button>
+          ))}
         </div>
-        <button className="btn btn-ghost btn-sm" onClick={() => { setInput(defaultInput()); setSavedId(null); setClientMode("trial"); setExistingCaseId(null); toast("info", "Calculator reset."); }}>
-          Reset
-        </button>
+        {clientMode === "trial" ? (
+          <p className="text-[12px] text-[var(--ink-faint)] m-0">Pure what-if — nothing touches the pipeline until you explicitly open a case.</p>
+        ) : (
+          <select
+            className="select"
+            style={{ width: 280 }}
+            value={existingCaseId ?? ""}
+            onChange={(e) => {
+              const id = e.target.value ? parseInt(e.target.value, 10) : null;
+              setExistingCaseId(id);
+              if (id != null) loadExistingCase(id);
+            }}
+          >
+            <option value="">Pick a case to prefill…</option>
+            {db.cases.filter((c) => c.caseStatus === "Active").map((c) => (
+              <option key={c.id} value={c.id}>{c.caseNumber} · {c.customer}</option>
+            ))}
+          </select>
+        )}
+        <span className="mono text-[11px] text-[var(--ink-faint)] ml-auto hidden md:inline">CBUAE-style · 50% DBR cap</span>
       </div>
 
-      {/* client mode — trial vs existing */}
-      <div className="card px-4 py-3 anim-fade-up">
-        <div className="flex flex-wrap items-center gap-3">
-          <span className="text-[10.5px] uppercase tracking-[0.12em] font-disp font-semibold text-[var(--ink-faint)]">Running for</span>
-          <div className="flex rounded-lg overflow-hidden border" style={{ borderColor: "var(--line)" }}>
-            <button type="button"
-              className="px-3.5 py-1.5 text-[12.5px] font-disp font-semibold transition-colors"
-              style={clientMode === "trial" ? { background: "var(--amber-tint)", color: "var(--amber)" } : { color: "var(--ink-faint)" }}
-              onClick={() => setClientMode("trial")}>
-              New client · trial
-            </button>
-            <button type="button"
-              className="px-3.5 py-1.5 text-[12.5px] font-disp font-semibold transition-colors"
-              style={clientMode === "existing" ? { background: "var(--amber-tint)", color: "var(--amber)" } : { color: "var(--ink-faint)" }}
-              onClick={() => setClientMode("existing")}>
-              Existing client
-            </button>
-          </div>
-
-          {clientMode === "trial" ? (
-            <span className="text-[11.5px] text-[var(--ink-faint)] flex items-center gap-1.5">
-              <span className="w-1.5 h-1.5 rounded-full" style={{ background: "var(--mint)" }} />
-              Pure what-if — saving stores an audit check only, never creates a case.
-            </span>
-          ) : (
-            <select className="select" style={{ width: 280 }} value={existingCaseId ?? ""}
-              onChange={(e) => { const v = e.target.value ? Number(e.target.value) : null; setExistingCaseId(v); if (v) loadExistingCase(v); }}>
-              <option value="">Select a case file…</option>
-              {[...db.cases].sort((a, b) => b.id - a.id).map((c) => (
-                <option key={c.id} value={c.id}>{c.caseNumber} · {c.customer}</option>
-              ))}
-            </select>
-          )}
-        </div>
-      </div>
-
-      <div className="grid grid-cols-1 xl:grid-cols-[1fr_400px] gap-4 items-start">
-        {/* ================= input column ================= */}
-        <div className="space-y-4">
-          <Section num="01" title="Applicant" hint="age sets the usable tenor">
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+      <div className="grid grid-cols-1 xl:grid-cols-[1fr_360px] gap-5 items-start">
+        {/* ================= inputs ================= */}
+        <div className="space-y-5">
+          <Section num="01" title="Applicant" hint="age drives the tenor">
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
               <div>
                 <label className="label">Applicant name</label>
                 <input className="input" value={input.name} onChange={(e) => up({ name: e.target.value })} placeholder="e.g. Mohammed Al Mansoori" />
@@ -510,7 +561,7 @@ export default function Calculator() {
                     {v}%
                   </button>
                 ))}
-                <span className={`flex items-center gap-1.5 transition-all`}
+                <span className="flex items-center gap-1.5 transition-all"
                   style={{ background: isCustomLtv ? "var(--amber-tint)" : "var(--bg2)", border: `1px solid ${isCustomLtv ? "var(--amber)" : "var(--line)"}`, borderRadius: 5, paddingLeft: 8, paddingRight: 8 }}>
                   <span className="text-[11px] uppercase tracking-[0.06em] font-disp" style={{ color: isCustomLtv ? "var(--amber)" : "var(--ink-faint)" }}>Custom</span>
                   <input className="mono" style={{ width: 52, padding: "3px 0", border: "none", background: "transparent", color: "var(--ink)", fontSize: 12, textAlign: "right", outline: "none" }}
@@ -524,12 +575,21 @@ export default function Calculator() {
 
             <p className="text-[12px] text-[var(--ink-dim)] mt-3 mb-0 rounded-lg px-3 py-2" style={{ background: "var(--tint)" }}>
               Calculation basis: <strong className="mono">{fmtAED(r.calcBasis)}</strong>
-              <span className="text-[var(--ink-faint)]"> — {r.basisLabel}. LTV {r.ltvPct}% ({input.ltvPctChoice != null ? "selected" : "default"}) for {input.applicantType}.</span>
+              <span className="text-[var(--ink-faint)]"> — {r.basisLabel}. LTV {r.ltvPct}% ({input.ltvPctChoice != null || isCustomLtv ? "selected" : "default"}) for {input.applicantType}.</span>
             </p>
           </Section>
 
           <Section num="03" title="Income" hint={input.employment === "Self-Employed" ? "self-employed basis" : "all sources → monthly equivalent"}>
-            <div className="space-y-2">
+            <div className="grid grid-cols-[1fr_76px_88px_60px_80px_24px] gap-2 mb-1 sm:hidden">
+              <span className="text-[10px] uppercase tracking-[0.08em] text-[var(--ink-faint)] font-disp font-semibold">Source</span>
+              <span className="text-[10px] uppercase tracking-[0.08em] text-[var(--ink-faint)] font-disp font-semibold">Freq</span>
+              <span className="text-[10px] uppercase tracking-[0.08em] text-[var(--ink-faint)] font-disp font-semibold">Amount</span>
+              <span className="text-[10px] uppercase tracking-[0.08em] text-[var(--ink-faint)] font-disp font-semibold">%</span>
+              <span className="text-[10px] uppercase tracking-[0.08em] text-[var(--ink-faint)] font-disp font-semibold text-right">Monthly</span>
+              <span />
+            </div>
+            <div className="overflow-x-auto scroll-slim -mx-1 px-1">
+            <div className="min-w-[600px] space-y-2">
               {input.incomes.map((row) => (
                 <div key={row.id} className="grid grid-cols-[1fr_92px_110px_76px_100px_30px] gap-2 items-center anim-fade-in">
                   <select className="select" value={row.source} onChange={(e) => patchIncome(row.id, { source: e.target.value })}>
@@ -548,7 +608,8 @@ export default function Calculator() {
                 </div>
               ))}
             </div>
-            <div className="flex items-center justify-between mt-3">
+            </div>
+            <div className="flex items-center justify-between mt-3 flex-wrap gap-2">
               <button className="btn btn-ghost btn-sm" onClick={() => setInput((p) => ({ ...p, incomes: [...p.incomes, newIncomeRow(sourcePool[Math.min(p.incomes.length, sourcePool.length - 1)], input.employment)] }))}>
                 <IPlus size={13} /> Add income
               </button>
@@ -556,9 +617,6 @@ export default function Calculator() {
                 Eligible monthly income{input.coBorrower ? " (combined)" : ""}{" "}
                 <strong className="mono text-[15px]" style={{ color: "var(--mint)" }}>{fmtAED(r.eligibleIncome)}</strong>
               </div>
-            </div>
-            <div className="grid grid-cols-5 gap-2 mt-2 text-[10px] uppercase tracking-[0.08em] text-[var(--ink-faint)] font-disp font-semibold sm:hidden">
-              <span>Source</span><span>Freq</span><span>Amount</span><span>%</span><span className="text-right">Monthly</span>
             </div>
 
             {/* co-borrower — calculation only, never written to a case */}
@@ -616,11 +674,12 @@ export default function Calculator() {
                       </div>
                     </div>
                   </div>
-                  <div className="space-y-2">
+                  <div className="overflow-x-auto scroll-slim -mx-1 px-1">
+                  <div className="min-w-[600px] space-y-2">
                     {input.coBorrower.incomes.map((row) => (
                       <div key={row.id} className="grid grid-cols-[1fr_92px_110px_76px_100px_30px] gap-2 items-center">
                         <select className="select" value={row.source} onChange={(e) => patchCoIncome(row.id, { source: e.target.value })}>
-                          {sourcePool.map((s) => <option key={s}>{s}</option>)}
+                          {[...sourcePool, ...CO_SOURCES].filter((s, i, a) => a.indexOf(s) === i).map((s) => <option key={s}>{s}</option>)}
                         </select>
                         <select className="select" value={row.frequency} onChange={(e) => patchCoIncome(row.id, { frequency: e.target.value as Frequency })}>
                           {FREQUENCIES.map((f) => <option key={f}>{f}</option>)}
@@ -645,7 +704,8 @@ export default function Calculator() {
                       </div>
                     ))}
                   </div>
-                  <div className="flex items-center justify-between mt-2.5">
+                  </div>
+                  <div className="flex items-center justify-between mt-2.5 flex-wrap gap-2">
                     <button
                       className="btn btn-ghost btn-sm"
                       onClick={() =>
@@ -672,7 +732,8 @@ export default function Calculator() {
                     {input.coBorrower.liabilities.length === 0 && (
                       <p className="text-[12px] text-[var(--ink-faint)] m-0 mb-2">No liabilities declared for the co-borrower.</p>
                     )}
-                    <div className="space-y-2">
+                    <div className="overflow-x-auto scroll-slim -mx-1 px-1">
+                    <div className="min-w-[560px] space-y-2">
                       {input.coBorrower.liabilities.map((l) => (
                         <div key={l.id} className="rounded-lg p-2.5 anim-fade-in" style={{ background: "color-mix(in srgb, var(--sky) 5%, transparent)", border: "1px solid color-mix(in srgb, var(--sky) 18%, transparent)" }}>
                           <div className="grid grid-cols-[1fr_130px_130px] gap-2">
@@ -710,7 +771,8 @@ export default function Calculator() {
                         </div>
                       ))}
                     </div>
-                    <div className="flex items-center justify-between mt-2.5">
+                    </div>
+                    <div className="flex items-center justify-between mt-2.5 flex-wrap gap-2">
                       <button className="btn btn-ghost btn-sm"
                         onClick={() =>
                           setInput((p) => ({
@@ -738,7 +800,8 @@ export default function Calculator() {
             {input.liabilities.length === 0 && (
               <p className="text-[12.5px] text-[var(--ink-faint)] m-0">No liabilities declared — the full DBR headroom is available.</p>
             )}
-            <div className="space-y-2">
+            <div className="overflow-x-auto scroll-slim -mx-1 px-1">
+            <div className="min-w-[560px] space-y-2">
               {input.liabilities.map((l) => (
                 <div key={l.id} className="rounded-lg p-2.5 anim-fade-in" style={{ background: "var(--tint)", border: "1px solid var(--line-soft)" }}>
                   <div className="grid grid-cols-[1fr_130px_130px] gap-2">
@@ -771,7 +834,8 @@ export default function Calculator() {
                 </div>
               ))}
             </div>
-            <div className="flex items-center justify-between mt-3">
+            </div>
+            <div className="flex items-center justify-between mt-3 flex-wrap gap-2">
               <button className="btn btn-ghost btn-sm" onClick={() => setInput((p) => ({ ...p, liabilities: [...p.liabilities, newLiabRow()] }))}>
                 <IPlus size={13} /> Add liability
               </button>
@@ -820,10 +884,20 @@ export default function Calculator() {
               <Stat label="Tenor used" value={tenorLabel(r.maxTenorMonths)} />
             </div>
           </Section>
+
+          {/* quick tools */}
+          <div className="anim-fade-up">
+            <div className="flex items-baseline gap-3 mb-2.5 px-1">
+              <span className="mono text-[11px] font-semibold px-1.5 py-0.5 rounded" style={{ background: "color-mix(in srgb, var(--sky) 14%, transparent)", color: "var(--sky)" }}>T</span>
+              <h2 className="font-disp font-semibold text-[15px] m-0">Quick tools</h2>
+              <span className="text-[11.5px] text-[var(--ink-faint)]">inverse answers using the assessment above</span>
+            </div>
+            <QuickTools input={input} r={r} />
+          </div>
         </div>
 
         {/* ================= result rail ================= */}
-        <div className="space-y-4 xl:sticky xl:top-[86px]">
+        <div ref={resultsRef} className="space-y-4 xl:sticky xl:top-[86px] scroll-mt-20">
           <div className="card p-5 anim-fade-up" style={{ borderColor: "var(--amber-line)", background: "linear-gradient(180deg, var(--amber-tint), var(--surface))", boxShadow: "var(--shadow)" }}>
             <div className="text-[10.5px] uppercase tracking-[0.14em] font-disp font-semibold" style={{ color: "var(--amber)" }}>Final MPBF</div>
             <div className="font-disp font-bold text-[38px] leading-[1.05] tracking-tight mt-1 tabular-nums">{fmtAED(mpbfDisplay)}</div>
@@ -839,52 +913,50 @@ export default function Calculator() {
                 <span>Debt burden</span><span>cap {fmtPct(r.maxDbr)}</span>
               </div>
               <div className="relative h-3 rounded-full overflow-hidden" style={{ background: "var(--track)" }}>
-                <div className="absolute inset-y-0 left-0 rounded-l-full transition-all duration-500"
-                  style={{ width: `${Math.min(r.currentDbr, 100)}%`, background: r.currentDbr > 50 ? "linear-gradient(90deg,#d95f4f,#f27363)" : "linear-gradient(90deg,#d99427,#f2b04c)" }} />
-                {r.currentDbr < 50 && (
-                  <div className="absolute inset-y-0 transition-all duration-500"
-                    style={{ left: `${r.currentDbr}%`, width: `${50 - r.currentDbr}%`, background: "color-mix(in srgb, var(--mint) 38%, transparent)" }} />
-                )}
-                <div className="absolute inset-y-0 w-[2px]" style={{ left: "50%", background: "var(--ink)" }} />
+                <div className="absolute inset-y-0 left-0 rounded-full transition-all duration-500" style={{ width: `${Math.min(100, (r.currentDbr / 60) * 100)}%`, background: r.currentDbr > 50 ? "var(--coral)" : "linear-gradient(90deg, var(--mint), var(--amber))" }} />
               </div>
-              <div className="grid grid-cols-3 gap-2 mt-2.5">
-                <Stat label="Current DBR" value={fmtPct(r.currentDbr)} tone={r.currentDbr > 50 ? "var(--coral)" : undefined} />
-                <Stat label="Maximum" value={fmtPct(r.maxDbr)} />
-                <Stat label="Residual" value={fmtPct(r.residualDbr)} tone="var(--mint)" />
+              <div className="flex justify-between text-[11px] mt-1.5">
+                <span className="text-[var(--ink-dim)]">current <strong className="mono">{fmtPct(r.currentDbr)}</strong></span>
+                <span style={{ color: "var(--mint)" }}>residual <strong className="mono">{fmtPct(r.residualDbr)}</strong></span>
               </div>
             </div>
 
-            {/* caps */}
-            <div className="mt-4 space-y-2">
-              {caps.map((c) => {
-                const limiting = Math.abs(c.v - Math.min(...caps.map((x) => x.v))) < 1;
-                return (
-                  <div key={c.label}>
-                    <div className="flex justify-between text-[11.5px] mb-1">
-                      <span className={limiting ? "text-[var(--ink)] font-semibold" : "text-[var(--ink-dim)]"}>{c.label}{limiting && <span style={{ color: "var(--amber)" }}> ◂ binds</span>}</span>
-                      <span className="mono">{fmtAED(c.v)}</span>
-                    </div>
-                    <div className="h-[5px] rounded-full overflow-hidden" style={{ background: "var(--track)" }}>
-                      <div className="h-full rounded-full transition-all duration-700" style={{ width: `${(c.v / capMax) * 100}%`, background: limiting ? "var(--amber)" : "var(--neutral)" }} />
-                    </div>
-                  </div>
-                );
-              })}
-            </div>
-
-            <div className="grid grid-cols-2 gap-x-4 gap-y-2.5 mt-4 pt-3.5" style={{ borderTop: "1px dashed var(--line)" }}>
-              <Stat label="Required down payment" value={fmtAED(r.downPayment)} />
+            <div className="grid grid-cols-2 gap-x-4 gap-y-3 mt-4 pt-4" style={{ borderTop: "1px dashed var(--line)" }}>
+              <Stat label="DBR MPBF" value={fmtAED(r.dbrMpbf)} />
+              <Stat label="LTV MPBF" value={fmtAED(r.ltvMpbf)} />
+              {r.multiplierCap != null && <Stat label="Multiplier cap" value={fmtAED(r.multiplierCap)} />}
+              <Stat label="Down payment" value={fmtAED(r.downPayment)} tone="var(--coral)" />
               <Stat label="Actual LTV" value={fmtPct(r.actualLtv)} />
+              <Stat label="EMI @ actual rate" value={`${fmtAED(r.newEmi)}/mo`} />
               <Stat label="DBR after mortgage" value={fmtPct(r.dbrAfter)} tone={r.dbrAfter > 50 ? "var(--coral)" : "var(--mint)"} />
-              <Stat label="EMI at actual rate" value={`${fmtAED(r.newEmi)}/mo`} />
+              <Stat label="Tenor" value={tenorLabel(r.maxTenorMonths)} />
             </div>
 
             <div className="flex flex-col gap-2 mt-4">
-              <button className="btn btn-primary justify-center" onClick={onView}><IEye size={15} /> View bank-facing report</button>
-              <button className="btn btn-ghost justify-center" onClick={onPdf}><IDownload size={15} /> Download PDF</button>
+              <button className="btn btn-primary justify-center" onClick={() => setPreview({
+                input, res: r,
+                tables: buildScenarioTablesFor(input, r),
+                by: session?.name ?? "HFMC",
+                obs: (() => {
+                  const liab = runScenarios(liabScenarios);
+                  const income = runScenarios(incomeScenarios);
+                  const best = [...liab, ...income]
+                    .map((s) => ({ label: s.label, d: s.mpbf - r.finalMpbf, dbr: s.dbr }))
+                    .filter((c) => c.d > 5000)
+                    .sort((a, b) => b.d - a.d)[0];
+                  return best
+                    ? `Strongest lever: ${best.label} — DBR moves ${fmtPct(r.currentDbr)} → ${fmtPct(best.dbr)}, unlocking ${fmtAED(best.d)} of additional MPBF.`
+                    : `No scenario improves the baseline ${fmtAED(r.finalMpbf)} — the binding constraint is ${r.limitedBy.toLowerCase()}.`;
+                })(),
+              })}>
+                <IEye size={15} /> View bank-facing report
+              </button>
+              <button className="btn btn-ghost justify-center" onClick={savePdf}>
+                <IDownload size={15} /> Download PDF
+              </button>
               <div className="grid grid-cols-2 gap-2">
-                <button className="btn btn-mint justify-center" onClick={onSave} title="Stores the eligibility check only — never creates a case">Save check</button>
-                <button className="btn btn-ghost justify-center" onClick={onOpenCase} title="Opens a pipeline case from this check (asks for confirmation)">Open case…</button>
+                <button className="btn btn-mint justify-center" onClick={onSave}>Save check</button>
+                <button className="btn btn-ghost justify-center" onClick={onOpenCase}>Open case…</button>
               </div>
               <p className="text-[10.5px] text-[var(--ink-faint)] text-center m-0">
                 Saving only stores the check for audit — a case is created only when you choose “Open case”.
@@ -893,47 +965,35 @@ export default function Calculator() {
             </div>
           </div>
 
-          {/* trail */}
-          <div className="card p-4 anim-fade-up">
-            <h3 className="font-disp font-semibold text-[13.5px] m-0 mb-2.5">Calculation trail</h3>
-            <ol className="space-y-1.5 m-0 p-0 list-none">
-              {r.trail.map((t, i) => (
-                <li key={i} className="mono text-[11px] leading-relaxed text-[var(--ink-dim)] flex gap-2">
-                  <span className="text-[var(--ink-faint)] shrink-0">{String(i + 1).padStart(2, "0")}</span>{t}
-                </li>
-              ))}
-            </ol>
-            {r.notes.length > 0 && (
-              <div className="mt-3 pt-3 space-y-1" style={{ borderTop: "1px dashed var(--line)" }}>
+          {r.notes.length > 0 && (
+            <div className="card p-4 anim-fade-up">
+              <div className="text-[10.5px] uppercase tracking-[0.12em] font-disp font-semibold text-[var(--ink-faint)] mb-2">Notes</div>
+              <ul className="m-0 pl-4 space-y-1">
                 {r.notes.map((n, i) => (
-                  <p key={i} className="text-[11.5px] m-0" style={{ color: "var(--amber)" }}>⚑ {n}</p>
+                  <li key={i} className="text-[12px] text-[var(--ink-dim)] leading-snug">{n}</li>
                 ))}
-              </div>
-            )}
-          </div>
+              </ul>
+            </div>
+          )}
         </div>
-      </div>
-
-      {/* ================= quick tools ================= */}
-      <div className="anim-fade-up">
-        <div className="flex items-baseline gap-3 mb-2.5 px-1">
-          <span className="mono text-[11px] font-semibold px-1.5 py-0.5 rounded" style={{ background: "color-mix(in srgb, var(--sky) 14%, transparent)", color: "var(--sky)" }}>T</span>
-          <h2 className="font-disp font-semibold text-[15px] m-0">Quick tools</h2>
-          <span className="text-[11.5px] text-[var(--ink-faint)]">inverse answers using the assessment above</span>
-        </div>
-        <QuickTools input={input} r={r} />
       </div>
 
       {/* ================= what-if ================= */}
       <div className="card anim-fade-up">
-        <div className="flex flex-wrap items-center gap-2 px-4 py-3 border-b" style={{ borderColor: "var(--line-soft)" }}>
-          <h3 className="font-disp font-semibold text-[14px] m-0">What-if analysis</h3>
-          <div className="flex gap-1.5 ml-auto flex-wrap">
-            {([["liab", "Liabilities"], ["rate", "Rate"], ["tenor", "Tenor"], ["income", "Income"]] as [WhifTab, string][]).map(([k, l]) => (
-              <button key={k} className="chip transition-all"
-                style={whif === k ? { background: "var(--amber-tint)", borderColor: "var(--amber)", color: "var(--amber)" } : { background: "var(--bg2)", borderColor: "var(--line)", color: "var(--ink-faint)" }}
-                onClick={() => setWhif(k)}>
-                {l}
+        <div className="px-4 py-3 border-b flex flex-wrap items-center gap-2" style={{ borderColor: "var(--line-soft)" }}>
+          <h3 className="font-disp font-semibold text-[13.5px] m-0">What-if analysis</h3>
+          <span className="text-[11px] text-[var(--ink-faint)] hidden sm:inline">what moves the number?</span>
+          <div className="ml-auto flex gap-1.5 flex-wrap">
+            {([
+              { k: "liab" as const, l: "Liabilities" },
+              { k: "rate" as const, l: "Rate" },
+              { k: "tenor" as const, l: "Tenor" },
+              { k: "income" as const, l: "Income" },
+            ]).map((t) => (
+              <button key={t.k} className="chip transition-all"
+                style={whif === t.k ? { background: "var(--amber-tint)", borderColor: "var(--amber)", color: "var(--amber)" } : { background: "var(--bg2)", borderColor: "var(--line)", color: "var(--ink-faint)" }}
+                onClick={() => setWhif(t.k)}>
+                {t.l}
               </button>
             ))}
           </div>
@@ -1001,6 +1061,7 @@ export default function Calculator() {
       {/* ================= audit trail ================= */}
       <div className="card anim-fade-up">
         <div className="px-4 py-3 border-b flex items-center gap-2" style={{ borderColor: "var(--line-soft)" }}>
+          <ICalc size={15} className="text-[var(--amber)]" />
           <h3 className="font-disp font-semibold text-[13.5px] m-0">Saved checks · audit trail</h3>
           <span className="mono text-[11px] text-[var(--ink-faint)] ml-auto">{checks.length} saved</span>
         </div>
@@ -1009,7 +1070,12 @@ export default function Calculator() {
         ) : (
           <div className="divide-y" style={{ borderColor: "var(--line-soft)" }}>
             {checks.map((k) => {
-              const parsed = k.payload ? (JSON.parse(k.payload) as { input?: MortgageInput }) : null;
+              let parsed: { input?: MortgageInput } | null = null;
+              try {
+                parsed = k.payload ? (JSON.parse(k.payload) as { input?: MortgageInput }) : null;
+              } catch {
+                parsed = null;
+              }
               return (
                 <div key={k.id} className="px-4 py-3 flex flex-wrap items-center gap-x-4 gap-y-2" style={{ borderColor: "var(--line-soft)" }}>
                   {k.eligible ? <Chip tone="mint">Eligible</Chip> : <Chip tone="coral">Not eligible</Chip>}
@@ -1023,18 +1089,18 @@ export default function Calculator() {
                   <div className="ml-auto flex items-center gap-1.5 flex-wrap">
                     {parsed?.input && (
                       <>
-                        <button className="btn btn-ghost btn-sm" onClick={() => { setInput(normalizeInput(parsed.input as MortgageInput)); setSavedId(k.id); window.scrollTo({ top: 0, behavior: "smooth" }); toast("info", `Loaded check #${k.id} for ${k.customerName}.`); }}>
+                        <button className="btn btn-ghost btn-sm" onClick={() => { setInput(normalizeInput(parsed!.input as MortgageInput)); setSavedId(k.id); window.scrollTo({ top: 0, behavior: "smooth" }); toast("info", `Loaded check #${k.id} for ${k.customerName}.`); }}>
                           Open
                         </button>
                         <button className="btn btn-ghost btn-sm" onClick={() => {
-                          const ni = normalizeInput(parsed.input as MortgageInput);
+                          const ni = normalizeInput(parsed!.input as MortgageInput);
                           const ri = computeMortgage(ni);
                           generateMortgagePdf(ni, ri, [], session?.name ?? "HFMC");
                         }}>
                           PDF
                         </button>
                         <button className="btn btn-ghost btn-sm" onClick={() => {
-                          const pi = normalizeInput(parsed.input as MortgageInput);
+                          const pi = normalizeInput(parsed!.input as MortgageInput);
                           const ri = computeMortgage(pi);
                           const liab = runScenarios(liabScenariosOf(pi));
                           const income = runScenarios(incomeScenariosOf(pi));
@@ -1081,16 +1147,37 @@ export default function Calculator() {
         )}
       </div>
 
-      <div className="flex items-center gap-2 text-[11.5px] text-[var(--ink-faint)] px-1">
+      <div className="flex items-center gap-2 text-[11.5px] text-[var(--ink-faint)] px-1 pb-20 xl:pb-0">
         <Avatar name={session?.name ?? "?"} size={20} />
-        Prepared by {session?.name} · figures follow CBUAE-style limits (50% DBR, {input.applicantType} LTV bands, 25y max tenor) — lender policy may differ.
+        <span>Prepared by {session?.name} · figures follow CBUAE-style limits (50% DBR, {input.applicantType} LTV bands, 25y max tenor) — lender policy may differ.</span>
+      </div>
+
+      {/* thumb-reach result bar — phones only, taps through to the full rail */}
+      <div
+        className="xl:hidden fixed bottom-0 inset-x-0 z-40 px-3 pb-safe pt-1.5"
+        style={{ background: "color-mix(in srgb, var(--bg) 86%, transparent)", backdropFilter: "blur(10px)", borderTop: "1px solid var(--line-soft)" }}
+      >
+        <button
+          onClick={scrollToResults}
+          className="w-full card flex items-center justify-between gap-3 px-4 py-2.5 text-left transition-transform active:scale-[0.985]"
+          style={{ borderColor: "var(--amber-line)", boxShadow: "0 12px 32px -12px rgba(15,23,42,0.4)" }}
+        >
+          <span className="min-w-0">
+            <span className="block text-[9.5px] uppercase tracking-[0.14em] font-disp font-semibold" style={{ color: "var(--amber)" }}>Final MPBF</span>
+            <span className="block mono font-bold text-[19px] leading-tight tabular-nums truncate">{fmtAED(r.finalMpbf)}</span>
+          </span>
+          <span className="flex items-center gap-1.5 shrink-0">
+            <Chip tone={r.limitedBy === "DBR / Income" ? "coral" : r.limitedBy === "LTV" ? "sky" : "amber"}>{r.limitedBy}</Chip>
+            <IChevronL size={15} className="-rotate-90 text-[var(--ink-faint)]" />
+          </span>
+        </button>
       </div>
 
       {preview && (
         <PreviewReport
           data={preview}
           onClose={() => setPreview(null)}
-          onPdf={() => generateMortgagePdf(preview.input, preview.res, preview.tables, preview.by)}
+          onPdf={() => generateMortgagePdf(preview.input, preview.res, preview.tables, preview.by, preview.obs)}
         />
       )}
 
@@ -1256,7 +1343,7 @@ function PreviewReport({
                   ["Actual / contract rate", fmtPct(res.actualRate)],
                   ["Stress load factor", `+ ${res.loadFactor.toFixed(2)}%`],
                   ["Assessment rate", fmtPct(res.assessmentRate)],
-                  ["LTV applied", `${res.ltvPct}%${inp.ltvPctChoice != null ? " (selected)" : ` (default · ${inp.applicantType})`}`],
+                  ["LTV applied", `${res.ltvPct}%${inp.ltvPctChoice != null || inp.customLtv ? " (selected)" : ` (default · ${inp.applicantType})`}`],
                   ["Current age", `${res.ageNowYears} years`],
                   ["Age processing margin", `${inp.marginMonths} months`],
                   ["Maximum tenor used", tenorLabel(res.maxTenorMonths)],
@@ -1548,101 +1635,6 @@ function PreviewReport({
           </div>
         </div>
       </div>
-    </div>
-  );
-}
-
-function ToolCard({ title, children, out, note }: { title: string; children: ReactNode; out: string; note: string }) {
-  return (
-    <div className="card card-hover p-4">
-      <div className="text-[10.5px] uppercase tracking-[0.12em] font-disp font-semibold text-[var(--ink-faint)] mb-2.5">{title}</div>
-      {children}
-      <div className="mono text-[19px] font-semibold mt-2.5" style={{ color: "var(--mint)" }}>{out}</div>
-      <div className="text-[11px] text-[var(--ink-faint)] mt-0.5">{note}</div>
-    </div>
-  );
-}
-
-function QuickTools({ input, r }: { input: MortgageInput; r: MortgageResult }) {
-  const [finance, setFinance] = useState(1000000);
-  const [propVal, setPropVal] = useState(1500000);
-  const [reqFin, setReqFin] = useState(1200000);
-
-  const reqEmi = emiFor(finance, r.assessmentRate, r.maxTenorMonths);
-  const reqIncome = reqEmi / 0.5 + r.existingEmis;
-  const maxProp = r.ltvPct > 0 ? r.dbrMpbf / (r.ltvPct / 100) : 0;
-  const ltvCap = (propVal * r.ltvPct) / 100;
-  const funded = Math.min(reqFin, ltvCap);
-  const reqDp = Math.max(0, propVal - funded);
-
-  return (
-    <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-      <ToolCard
-        title="Required income"
-        out={fmtAED(reqIncome)}
-        note={`eligible monthly income needed · ${r.assessmentRate.toFixed(2)}% over ${tenorLabel(r.maxTenorMonths)} · incl. existing EMIs`}
-      >
-        <label className="label">Desired finance (AED)</label>
-        <NumIn value={finance} onChange={setFinance} step={50000} />
-      </ToolCard>
-      <ToolCard
-        title="Maximum property value"
-        out={fmtAED(maxProp)}
-        note={`income supports ${fmtAED(r.dbrMpbf)} at ${r.ltvPct}% LTV (${input.applicantType})`}
-      >
-        <label className="label">Based on current eligible income</label>
-        <div className="text-[12px] text-[var(--ink-dim)]">DBR MPBF {fmtAED(r.dbrMpbf)} ÷ {r.ltvPct}% LTV</div>
-      </ToolCard>
-      <ToolCard
-        title="Required down payment"
-        out={fmtAED(reqDp)}
-        note={reqFin > ltvCap ? `bank funds at most ${fmtAED(ltvCap)} at ${r.ltvPct}% LTV — rest is cash` : "requested finance fits inside the LTV cap"}
-      >
-        <div className="grid grid-cols-2 gap-2">
-          <div>
-            <label className="label">Property (AED)</label>
-            <NumIn value={propVal} onChange={setPropVal} step={50000} />
-          </div>
-          <div>
-            <label className="label">Finance (AED)</label>
-            <NumIn value={reqFin} onChange={setReqFin} step={50000} />
-          </div>
-        </div>
-      </ToolCard>
-    </div>
-  );
-}
-
-function ScenarioTable({ rows, base, delta }: {
-  rows: { label: string; dbr: number; residual: number; mpbf: number }[];
-  base: number;
-  delta: (v: number) => ReactNode;
-}) {
-  return (
-    <div className="overflow-x-auto">
-      <table className="tbl" style={{ minWidth: 560 }}>
-        <thead>
-          <tr>
-            <th>Scenario</th>
-            <th>Current DBR</th>
-            <th>Residual DBR</th>
-            <th>Final MPBF</th>
-            <th>Change</th>
-          </tr>
-        </thead>
-        <tbody>
-          {rows.map((row, i) => (
-            <tr key={row.label + i} style={{ cursor: "default" }} className={i === 0 ? "anim-fade-in" : ""}>
-              <td className={i === 0 ? "font-semibold" : ""}>{row.label}</td>
-              <td className="mono text-[12.5px]">{fmtPct(row.dbr)}</td>
-              <td className="mono text-[12.5px]" style={{ color: "var(--mint)" }}>{fmtPct(row.residual)}</td>
-              <td className="mono font-semibold">{fmtAED(row.mpbf)}</td>
-              <td className="mono text-[12.5px]">{i === 0 ? <span className="text-[var(--ink-faint)]">baseline</span> : delta(row.mpbf)}</td>
-            </tr>
-          ))}
-        </tbody>
-      </table>
-      <span className="hidden">{base}</span>
     </div>
   );
 }

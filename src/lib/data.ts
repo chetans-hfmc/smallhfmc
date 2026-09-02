@@ -383,8 +383,41 @@ export function seedDb(): DB {
     mkCheck(4, 5, "John Okafor", 9, 1, { mi: 30000, oi: 0, emi: 4500, age: 34, emp: "Salaried", pv: 1900000, bank: "FAB", rate: null, ten: 20 }),
   ];
 
+  /* seed a realistic email log so the Email Log screen is alive on first open —
+     emails that flowed through the SalesProgressionDL / VIRTUALRM1 group mailboxes */
+  const emails: import("./types").EmailLog[] = [];
+  const nowMs = Date.now();
+  const mkEmail = (
+    id: string, customerName: string, bankName: string | null, topic: string,
+    dir: "out" | "in", hoursAgo: number, fromName: string, fromAddress: string, snippet: string, link: boolean
+  ) => {
+    const c = link ? cases.find((x) => x.customer === customerName && x.caseStatus === "Active") : undefined;
+    const at = new Date(nowMs - hoursAgo * 3600000).toISOString();
+    emails.push({
+      id,
+      subject: `${customerName} – ${bankName ?? "bank TBC"} – ${topic}`,
+      fromName, fromAddress,
+      direction: dir,
+      customer: customerName, bank: bankName,
+      caseId: c?.id ?? null,
+      receivedAt: at,
+      snippet,
+      linkedAt: c ? at : null,
+      linkedBy: null,
+    });
+  };
+  mkEmail("seed-q1", "Mohammed Al Mansoori", "ADCB", "salary certificate clarification", "out", 52, "HFMC Mortgages", "operations@hfmcgroupuae.com", "Sent to ADCB credit team · CC SalesProgressionDL, VIRTUALRM1", true);
+  mkEmail("seed-r1", "Mohammed Al Mansoori", "ADCB", "salary certificate clarification", "in", 30, "ADCB · Relationship Manager", "credit.adcb@adcb.com", "Please provide the latest salary certificate with breakdown of allowances.", true);
+  mkEmail("seed-q2", "Fatima Noor", "FAB", "liability letter chase (3rd)", "out", 44, "HFMC Mortgages", "operations@hfmcgroupuae.com", "Third reminder to FAB ops — liability letter still outstanding.", true);
+  mkEmail("seed-q3", "Priya Menon", "HSBC", "spouse income declaration", "out", 26, "HFMC Mortgages", "operations@hfmcgroupuae.com", "Query raised on spouse income — declaration attached for review.", true);
+  mkEmail("seed-r3", "Priya Menon", "HSBC", "spouse income declaration", "in", 8, "HSBC · Credit Processing", "mortgages@hsbc.ae", "Declaration received. One further point on the allowance structure.", true);
+  mkEmail("seed-q4", "Khalid Bin Omar", "ADIB", "transfer date confirmation", "out", 20, "HFMC Mortgages", "operations@hfmcgroupuae.com", "Asked ADIB to confirm the funds transfer date with the trustee.", true);
+  mkEmail("seed-q5", "David Chen", "Mashreq", "disbursement confirmation", "out", 70, "HFMC Mortgages", "operations@hfmcgroupuae.com", "Awaiting disbursement confirmation from Mashreq back office.", true);
+  mkEmail("seed-x1", "Omar Al Farsi", "Mashreq", "pre-approval status", "out", 12, "HFMC Mortgages", "operations@hfmcgroupuae.com", "Customer not in the pipeline yet — create a case or link manually.", false);
+  mkEmail("seed-x2", "Huda Ibrahim", "CBD", "documents received", "in", 5, "CBD · Credit Processing", "creditprocessing@cbd.ae", "Documents received for the above customer. No pipeline match found.", false);
+
   return {
-    version: 9, users, designations, cases, tasks, activities, stages, whyPending, waitingFor,
-    banks, partners, slaRules, instructions, bulletin, affordabilityChecks,
+    version: 10, users, designations, cases, tasks, activities, stages, whyPending, waitingFor,
+    banks, partners, slaRules, instructions, bulletin, affordabilityChecks, emails,
   };
 }

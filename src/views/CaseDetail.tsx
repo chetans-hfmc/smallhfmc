@@ -100,7 +100,7 @@ function DirectivesBanner({ c }: { c: LoanCase }) {
           const done = status === "Done";
           return (
             <div key={d.key} className="px-4 py-3" style={{ opacity: done ? 0.65 : 1 }}>
-              <div className="flex items-start gap-3">
+              <div className="flex items-start gap-3 max-sm:flex-wrap">
                 <Avatar name={issuer?.name ?? "?"} size={30} />
                 <div className="min-w-0 flex-1">
                   <div className="flex flex-wrap items-baseline gap-x-2">
@@ -119,7 +119,7 @@ function DirectivesBanner({ c }: { c: LoanCase }) {
                     <p className="text-[11px] mt-0.5 mb-0" style={{ color: "var(--mint)" }}>✓ done {relTime((isInstr ? d.i.completedAt : d.b.completedAt) as string)}</p>
                   )}
                 </div>
-                <div className="flex flex-col gap-1.5 shrink-0">
+                <div className="flex flex-col gap-1.5 sm:shrink-0 max-sm:flex-row max-sm:flex-wrap max-sm:items-center max-sm:justify-end max-sm:w-full">
                   {canAct && (isInstr || !d.b.caseId) && (
                     <button className="btn btn-mint btn-sm" onClick={() => {
                       if (isInstr) { completeInstruction(d.i.id); } else { completeBulletin(d.b.id); }
@@ -331,7 +331,7 @@ function NextTaskModal({ c, open, onClose }: { c: LoanCase; open: boolean; onClo
 }
 
 export default function CaseDetail({ id }: { id: number }) {
-  const { db, nav, canEditCase, canEditTask, updateCase, setCaseState, deleteCase, userById, toast, session } = useStore();
+  const { db, nav, canEditCase, updateCase, setCaseState, deleteCase, userById, toast, session } = useStore();
   const c = db.cases.find((x) => x.id === id);
   const [showNext, setShowNext] = useState(false);
   const [confirm, setConfirm] = useState<"book" | "lost" | "reopen" | "delete" | null>(null);
@@ -595,8 +595,6 @@ export default function CaseDetail({ id }: { id: number }) {
             </div>
           )}
 
-
-
           <div className="card anim-fade-up">
             <div className="px-4 py-3 border-b flex items-center gap-2" style={{ borderColor: "var(--line-soft)" }}>
               <IHistory size={15} className="text-[var(--ink-faint)]" />
@@ -703,5 +701,5 @@ export default function CaseDetail({ id }: { id: number }) {
   );
 }
 
-/* keep canEditTask referenced for future inline edits */
+/* keep task type re-exported for consumers */
 export type { Task };

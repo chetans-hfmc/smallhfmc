@@ -3,7 +3,7 @@ import type { ReactNode } from "react";
 import { computeEscalations, useStore } from "../lib/store";
 import type { CaseStatus, LoanCase } from "../lib/types";
 import {
-  TONE_HEX, ageDays, caseStatusOf, commissionFor, downloadCSV, fmtMoney, fmtRate, primaryBank, rateFor, todayISO,
+  TONE_HEX, ageDays, caseStatusOf, commissionFor, downloadCSV, fmtMoney, fmtRate, primaryBank, todayISO,
 } from "../lib/format";
 import { Avatar, Chip, DueChip, StatusChip } from "../components/ui";
 import { BarList, Donut } from "../components/charts";

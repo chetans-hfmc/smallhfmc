@@ -362,7 +362,7 @@ function MasterTab({ kind }: { kind: "stages" | "whyPending" | "waitingFor" }) {
           <div key={m.id} className="px-4 py-2.5 flex items-center gap-3" style={{ borderColor: "var(--line-soft)", opacity: m.active ? 1 : 0.5 }}>
             {kind === "stages" && (
               <>
-                <span className="mono text-[11px] text-[var(--ink-faint)] w-6">{kind === "stages" ? (m as unknown as { sortOrder: number }).sortOrder : ""}</span>
+                <span className="mono text-[11px] text-[var(--ink-faint)] w-6">{(m as unknown as { sortOrder: number }).sortOrder}</span>
                 <button className="btn btn-ghost btn-sm !px-1.5 !py-1" onClick={() => moveStage(m.id, -1)}><IChevronL size={13} /></button>
                 <button className="btn btn-ghost btn-sm !px-1.5 !py-1" onClick={() => moveStage(m.id, 1)}><IChevronR size={13} /></button>
               </>
