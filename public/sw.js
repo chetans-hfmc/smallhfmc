@@ -1,21 +1,17 @@
-/* HFMC Case Tracker — service worker: offline shell + asset cache */
-const VERSION = "hfmc-v1";
-const SHELL = ["./", "./index.html", "./manifest.webmanifest", "./icons/icon.svg", "./icons/icon-512.png"];
+/* HFMC Case Tracker — service worker.
+   Strategy: network-first for navigations (always the freshest shell, cached when offline),
+   stale-while-revalidate for same-origin assets, cache-through for web fonts. */
+const CACHE = "hfmc-cache-v1";
 
-self.addEventListener("install", (event) => {
-  event.waitUntil(
-    caches
-      .open(VERSION)
-      .then((cache) => cache.addAll(SHELL))
-      .then(() => self.skipWaiting())
-  );
+self.addEventListener("install", () => {
+  self.skipWaiting();
 });
 
 self.addEventListener("activate", (event) => {
   event.waitUntil(
     caches
       .keys()
-      .then((keys) => Promise.all(keys.filter((k) => k !== VERSION).map((k) => caches.delete(k))))
+      .then((keys) => Promise.all(keys.filter((k) => k !== CACHE).map((k) => caches.delete(k))))
       .then(() => self.clients.claim())
   );
 });
@@ -23,35 +19,59 @@ self.addEventListener("activate", (event) => {
 self.addEventListener("fetch", (event) => {
   const req = event.request;
   if (req.method !== "GET") return;
-  const url = new URL(req.url);
+
+  let url;
+  try {
+    url = new URL(req.url);
+  } catch {
+    return;
+  }
+
+  /* Google Fonts — serve from cache whenever possible */
+  if (url.hostname.includes("fonts.googleapis.com") || url.hostname.includes("fonts.gstatic.com")) {
+    event.respondWith(
+      caches.open(CACHE).then(async (cache) => {
+        const hit = await cache.match(req);
+        if (hit) return hit;
+        try {
+          const res = await fetch(req);
+          if (res && (res.status === 200 || res.type === "opaque")) cache.put(req, res.clone());
+          return res;
+        } catch (err) {
+          return Response.error();
+        }
+      })
+    );
+    return;
+  }
+
   if (url.origin !== self.location.origin) return;
 
-  // navigations: network first, fall back to the cached shell (hash routing keeps state)
+  /* App navigations — fresh first, fall back to the cached shell offline */
   if (req.mode === "navigate") {
     event.respondWith(
       fetch(req)
         .then((res) => {
           const copy = res.clone();
-          caches.open(VERSION).then((c) => c.put("./index.html", copy));
+          caches.open(CACHE).then((cache) => cache.put("/", copy));
           return res;
         })
-        .catch(() => caches.match("./index.html"))
+        .catch(() => caches.match("/").then((hit) => hit || Response.error()))
     );
     return;
   }
 
-  // assets: cache first, then network (and cache the fresh copy)
+  /* Same-origin assets — stale-while-revalidate */
   event.respondWith(
-    caches.match(req).then(
-      (hit) =>
-        hit ||
-        fetch(req).then((res) => {
-          if (res.ok) {
-            const copy = res.clone();
-            caches.open(VERSION).then((c) => c.put(req, copy));
-          }
+    caches.open(CACHE).then(async (cache) => {
+      const hit = await cache.match(req);
+      const network = fetch(req)
+        .then((res) => {
+          if (res && res.status === 200) cache.put(req, res.clone());
           return res;
         })
-    )
+        .catch(() => hit);
+      return hit || network;
+    })
   );
 });

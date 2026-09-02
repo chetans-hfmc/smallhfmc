@@ -1,25 +1,24 @@
 {
-  "name": "HFMC Case Tracker",
+  "name": "HFMC Case Tracker — UAE Mortgage Pipeline",
   "short_name": "HFMC",
-  "description": "The shared UAE mortgage pipeline — cases, tasks, directives, calculator and commissions.",
-  "id": "./",
-  "start_url": "./#/",
-  "scope": "./",
+  "description": "The shared UAE mortgage pipeline: cases, bank submissions, commissions, directives and the MPBF calculator.",
+  "id": "/",
+  "start_url": "/",
+  "scope": "/",
   "display": "standalone",
   "orientation": "portrait-primary",
   "background_color": "#0b171d",
-  "theme_color": "#0e1d24",
+  "theme_color": "#0b171d",
   "lang": "en",
   "categories": ["business", "finance", "productivity"],
   "icons": [
-    { "src": "icons/icon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any" },
-    { "src": "icons/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any" },
-    { "src": "icons/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
+    { "src": "/icons/icon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any" },
+    { "src": "/icons/icon.svg", "sizes": "512x512", "type": "image/svg+xml", "purpose": "maskable" }
   ],
   "shortcuts": [
-    { "name": "Dashboard", "short_name": "Pipeline", "url": "./#/", "icons": [{ "src": "icons/icon.svg", "sizes": "any" }] },
-    { "name": "Calculator", "short_name": "Calc", "url": "./#/calculator", "icons": [{ "src": "icons/icon.svg", "sizes": "any" }] },
-    { "name": "Morning Bulletin", "short_name": "Bulletin", "url": "./#/bulletin", "icons": [{ "src": "icons/icon.svg", "sizes": "any" }] },
-    { "name": "Task Queue", "short_name": "Tasks", "url": "./#/tasks", "icons": [{ "src": "icons/icon.svg", "sizes": "any" }] }
+    { "name": "Dashboard", "url": "/#/", "icons": [{ "src": "/icons/icon.svg", "sizes": "any", "type": "image/svg+xml" }] },
+    { "name": "Morning Bulletin", "url": "/#/bulletin", "icons": [{ "src": "/icons/icon.svg", "sizes": "any", "type": "image/svg+xml" }] },
+    { "name": "Calculator", "url": "/#/calculator", "icons": [{ "src": "/icons/icon.svg", "sizes": "any", "type": "image/svg+xml" }] },
+    { "name": "Reports", "url": "/#/reports", "icons": [{ "src": "/icons/icon.svg", "sizes": "any", "type": "image/svg+xml" }] }
   ]
 }

@@ -100,7 +100,7 @@ function DirectivesBanner({ c }: { c: LoanCase }) {
           const done = status === "Done";
           return (
             <div key={d.key} className="px-4 py-3" style={{ opacity: done ? 0.65 : 1 }}>
-              <div className="flex items-start gap-3">
+              <div className="flex items-start gap-3 max-sm:flex-wrap">
                 <Avatar name={issuer?.name ?? "?"} size={30} />
                 <div className="min-w-0 flex-1">
                   <div className="flex flex-wrap items-baseline gap-x-2">
@@ -119,7 +119,7 @@ function DirectivesBanner({ c }: { c: LoanCase }) {
                     <p className="text-[11px] mt-0.5 mb-0" style={{ color: "var(--mint)" }}>✓ done {relTime((isInstr ? d.i.completedAt : d.b.completedAt) as string)}</p>
                   )}
                 </div>
-                <div className="flex flex-col gap-1.5 shrink-0">
+                <div className="flex flex-col gap-1.5 sm:shrink-0 max-sm:flex-row max-sm:flex-wrap max-sm:items-center max-sm:justify-end max-sm:w-full">
                   {canAct && (isInstr || !d.b.caseId) && (
                     <button className="btn btn-mint btn-sm" onClick={() => {
                       if (isInstr) { completeInstruction(d.i.id); } else { completeBulletin(d.b.id); }

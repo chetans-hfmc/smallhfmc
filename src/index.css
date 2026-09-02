@@ -555,3 +555,37 @@ html[data-theme="light"] .paper {
 .stagger > *:nth-child(4) { animation-delay: 0.17s; }
 .stagger > *:nth-child(5) { animation-delay: 0.22s; }
 .stagger > *:nth-child(6) { animation-delay: 0.27s; }
+
+/* ---------- ambient drift — the backdrop breathes very slowly ---------- */
+@keyframes bgdrift {
+  0% { transform: translate3d(0, 0, 0) scale(1); }
+  50% { transform: translate3d(1.5%, -1.5%, 0) scale(1.03); }
+  100% { transform: translate3d(0, 0, 0) scale(1); }
+}
+.app-bg::before { animation: bgdrift 26s ease-in-out infinite; }
+
+/* ---------- mobile refinements ---------- */
+/* 16px inputs stop iOS from zooming the page on focus */
+@media (max-width: 640px) {
+  .input, .select, .textarea { font-size: 16px; padding: 10px 12px; }
+  .btn { min-height: 38px; }
+  .tbl th, .tbl td { padding: 9px 10px; }
+}
+
+/* tap feedback everywhere on touch */
+@media (hover: none) {
+  .btn:active { transform: scale(0.97); }
+  .card-hover:active { transform: scale(0.995); }
+}
+
+/* safe-area aware bottom chrome (installed PWA on notched phones) */
+.pb-safe { padding-bottom: calc(env(safe-area-inset-bottom, 0px) + 10px); }
+.pt-safe { padding-top: env(safe-area-inset-top, 0px); }
+
+/* slim scrollbars on horizontally-scrolling strips */
+.scroll-slim::-webkit-scrollbar { height: 6px; }
+.scroll-slim { scrollbar-width: thin; }
+
+/* the collapsed desktop rail */
+.rail-btn { justify-content: center; padding-left: 0; padding-right: 0; }
+.rail-btn .rail-tip { display: none; }

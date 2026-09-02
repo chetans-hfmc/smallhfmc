@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import type { ReactNode } from "react";
 import { useStore } from "../lib/store";
 import type { AffordabilityCheck } from "../lib/types";
@@ -15,7 +15,7 @@ import { relTime } from "../lib/format";
 import { Avatar, Chip } from "../components/ui";
 import { ConfirmModal } from "../components/bits";
 import { useCountUp } from "../components/charts";
-import { IArrowR, ICalc, IDownload, IEye, IPlus, ITrash, IX } from "../components/icons";
+import { IArrowR, ICalc, IChevronL, IDownload, IEye, IPlus, ITrash, IX } from "../components/icons";
 
 /* ---------- small building blocks ---------- */
 
@@ -206,6 +206,8 @@ export default function Calculator() {
   const [extraIncome, setExtraIncome] = useState("");
   const [clientMode, setClientMode] = useState<"trial" | "existing">("trial");
   const [existingCaseId, setExistingCaseId] = useState<number | null>(null);
+  const resultsRef = useRef<HTMLDivElement>(null);
+  const scrollToResults = () => resultsRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
 
   const up = (patch: Partial<MortgageInput>) => setInput((p) => ({ ...p, ...patch }));
 
@@ -578,7 +580,16 @@ export default function Calculator() {
           </Section>
 
           <Section num="03" title="Income" hint={input.employment === "Self-Employed" ? "self-employed basis" : "all sources → monthly equivalent"}>
-            <div className="space-y-2">
+            <div className="grid grid-cols-[1fr_76px_88px_60px_80px_24px] gap-2 mb-1 sm:hidden">
+              <span className="text-[10px] uppercase tracking-[0.08em] text-[var(--ink-faint)] font-disp font-semibold">Source</span>
+              <span className="text-[10px] uppercase tracking-[0.08em] text-[var(--ink-faint)] font-disp font-semibold">Freq</span>
+              <span className="text-[10px] uppercase tracking-[0.08em] text-[var(--ink-faint)] font-disp font-semibold">Amount</span>
+              <span className="text-[10px] uppercase tracking-[0.08em] text-[var(--ink-faint)] font-disp font-semibold">%</span>
+              <span className="text-[10px] uppercase tracking-[0.08em] text-[var(--ink-faint)] font-disp font-semibold text-right">Monthly</span>
+              <span />
+            </div>
+            <div className="overflow-x-auto scroll-slim -mx-1 px-1">
+            <div className="min-w-[600px] space-y-2">
               {input.incomes.map((row) => (
                 <div key={row.id} className="grid grid-cols-[1fr_92px_110px_76px_100px_30px] gap-2 items-center anim-fade-in">
                   <select className="select" value={row.source} onChange={(e) => patchIncome(row.id, { source: e.target.value })}>
@@ -597,7 +608,8 @@ export default function Calculator() {
                 </div>
               ))}
             </div>
-            <div className="flex items-center justify-between mt-3">
+            </div>
+            <div className="flex items-center justify-between mt-3 flex-wrap gap-2">
               <button className="btn btn-ghost btn-sm" onClick={() => setInput((p) => ({ ...p, incomes: [...p.incomes, newIncomeRow(sourcePool[Math.min(p.incomes.length, sourcePool.length - 1)], input.employment)] }))}>
                 <IPlus size={13} /> Add income
               </button>
@@ -662,7 +674,8 @@ export default function Calculator() {
                       </div>
                     </div>
                   </div>
-                  <div className="space-y-2">
+                  <div className="overflow-x-auto scroll-slim -mx-1 px-1">
+                  <div className="min-w-[600px] space-y-2">
                     {input.coBorrower.incomes.map((row) => (
                       <div key={row.id} className="grid grid-cols-[1fr_92px_110px_76px_100px_30px] gap-2 items-center">
                         <select className="select" value={row.source} onChange={(e) => patchCoIncome(row.id, { source: e.target.value })}>
@@ -691,7 +704,8 @@ export default function Calculator() {
                       </div>
                     ))}
                   </div>
-                  <div className="flex items-center justify-between mt-2.5">
+                  </div>
+                  <div className="flex items-center justify-between mt-2.5 flex-wrap gap-2">
                     <button
                       className="btn btn-ghost btn-sm"
                       onClick={() =>
@@ -718,7 +732,8 @@ export default function Calculator() {
                     {input.coBorrower.liabilities.length === 0 && (
                       <p className="text-[12px] text-[var(--ink-faint)] m-0 mb-2">No liabilities declared for the co-borrower.</p>
                     )}
-                    <div className="space-y-2">
+                    <div className="overflow-x-auto scroll-slim -mx-1 px-1">
+                    <div className="min-w-[560px] space-y-2">
                       {input.coBorrower.liabilities.map((l) => (
                         <div key={l.id} className="rounded-lg p-2.5 anim-fade-in" style={{ background: "color-mix(in srgb, var(--sky) 5%, transparent)", border: "1px solid color-mix(in srgb, var(--sky) 18%, transparent)" }}>
                           <div className="grid grid-cols-[1fr_130px_130px] gap-2">
@@ -756,7 +771,8 @@ export default function Calculator() {
                         </div>
                       ))}
                     </div>
-                    <div className="flex items-center justify-between mt-2.5">
+                    </div>
+                    <div className="flex items-center justify-between mt-2.5 flex-wrap gap-2">
                       <button className="btn btn-ghost btn-sm"
                         onClick={() =>
                           setInput((p) => ({
@@ -784,7 +800,8 @@ export default function Calculator() {
             {input.liabilities.length === 0 && (
               <p className="text-[12.5px] text-[var(--ink-faint)] m-0">No liabilities declared — the full DBR headroom is available.</p>
             )}
-            <div className="space-y-2">
+            <div className="overflow-x-auto scroll-slim -mx-1 px-1">
+            <div className="min-w-[560px] space-y-2">
               {input.liabilities.map((l) => (
                 <div key={l.id} className="rounded-lg p-2.5 anim-fade-in" style={{ background: "var(--tint)", border: "1px solid var(--line-soft)" }}>
                   <div className="grid grid-cols-[1fr_130px_130px] gap-2">
@@ -817,7 +834,8 @@ export default function Calculator() {
                 </div>
               ))}
             </div>
-            <div className="flex items-center justify-between mt-3">
+            </div>
+            <div className="flex items-center justify-between mt-3 flex-wrap gap-2">
               <button className="btn btn-ghost btn-sm" onClick={() => setInput((p) => ({ ...p, liabilities: [...p.liabilities, newLiabRow()] }))}>
                 <IPlus size={13} /> Add liability
               </button>
@@ -879,7 +897,7 @@ export default function Calculator() {
         </div>
 
         {/* ================= result rail ================= */}
-        <div className="space-y-4 xl:sticky xl:top-[86px]">
+        <div ref={resultsRef} className="space-y-4 xl:sticky xl:top-[86px] scroll-mt-20">
           <div className="card p-5 anim-fade-up" style={{ borderColor: "var(--amber-line)", background: "linear-gradient(180deg, var(--amber-tint), var(--surface))", boxShadow: "var(--shadow)" }}>
             <div className="text-[10.5px] uppercase tracking-[0.14em] font-disp font-semibold" style={{ color: "var(--amber)" }}>Final MPBF</div>
             <div className="font-disp font-bold text-[38px] leading-[1.05] tracking-tight mt-1 tabular-nums">{fmtAED(mpbfDisplay)}</div>
@@ -1129,9 +1147,30 @@ export default function Calculator() {
         )}
       </div>
 
-      <div className="flex items-center gap-2 text-[11.5px] text-[var(--ink-faint)] px-1">
+      <div className="flex items-center gap-2 text-[11.5px] text-[var(--ink-faint)] px-1 pb-20 xl:pb-0">
         <Avatar name={session?.name ?? "?"} size={20} />
-        Prepared by {session?.name} · figures follow CBUAE-style limits (50% DBR, {input.applicantType} LTV bands, 25y max tenor) — lender policy may differ.
+        <span>Prepared by {session?.name} · figures follow CBUAE-style limits (50% DBR, {input.applicantType} LTV bands, 25y max tenor) — lender policy may differ.</span>
+      </div>
+
+      {/* thumb-reach result bar — phones only, taps through to the full rail */}
+      <div
+        className="xl:hidden fixed bottom-0 inset-x-0 z-40 px-3 pb-safe pt-1.5"
+        style={{ background: "color-mix(in srgb, var(--bg) 86%, transparent)", backdropFilter: "blur(10px)", borderTop: "1px solid var(--line-soft)" }}
+      >
+        <button
+          onClick={scrollToResults}
+          className="w-full card flex items-center justify-between gap-3 px-4 py-2.5 text-left transition-transform active:scale-[0.985]"
+          style={{ borderColor: "var(--amber-line)", boxShadow: "0 12px 32px -12px rgba(15,23,42,0.4)" }}
+        >
+          <span className="min-w-0">
+            <span className="block text-[9.5px] uppercase tracking-[0.14em] font-disp font-semibold" style={{ color: "var(--amber)" }}>Final MPBF</span>
+            <span className="block mono font-bold text-[19px] leading-tight tabular-nums truncate">{fmtAED(r.finalMpbf)}</span>
+          </span>
+          <span className="flex items-center gap-1.5 shrink-0">
+            <Chip tone={r.limitedBy === "DBR / Income" ? "coral" : r.limitedBy === "LTV" ? "sky" : "amber"}>{r.limitedBy}</Chip>
+            <IChevronL size={15} className="-rotate-90 text-[var(--ink-faint)]" />
+          </span>
+        </button>
       </div>
 
       {preview && (

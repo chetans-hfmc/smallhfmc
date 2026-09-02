@@ -207,7 +207,7 @@ export default function Dashboard() {
                 />
               </div>
             ) : (
-              <table className="tbl">
+              <table className="tbl min-w-[840px]">
                 <thead>
                   <tr>
                     <th>Case</th>

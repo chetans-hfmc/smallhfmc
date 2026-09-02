@@ -1,13 +1,15 @@
 import { useEffect, useState } from "react";
 import type { ReactNode } from "react";
-import type { CasePartner, CaseSource, Role, Route } from "../lib/types";
+import type { CasePartner, CaseSource, Route } from "../lib/types";
 import { PARTNER_SHARES, SOURCES } from "../lib/types";
 import { bulletinVisible, computeEscalations, useStore } from "../lib/store";
 import { fmtMoney, inDaysISO, todayISO } from "../lib/format";
 import { Avatar, Chip, Modal, ThemeToggle } from "./ui";
 import {
-  IBank, IBriefcase, ICalc, IChart, IFlag, IGrid, IInbox, ILogout, IPlus, IShield, ITasks, LogoMark,
+  IBank, IBriefcase, ICalc, IChart, IChevronL, IChevronR, IDownload, IFlag, IGrid, ILogout, IPlus, IShield, ITasks, LogoMark,
 } from "./icons";
+
+type BIPEvent = Event & { prompt: () => Promise<void>; userChoice: Promise<{ outcome: string }> };
 
 function Clock() {
   const [now, setNow] = useState(new Date());
@@ -21,6 +23,14 @@ function Clock() {
       {" · "}
       {now.toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit", second: "2-digit", hour12: false })}
     </span>
+  );
+}
+
+function MenuIcon({ size = 18 }: { size?: number }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" aria-hidden="true">
+      <path d="M4 7h16M4 12h16M4 17h10" />
+    </svg>
   );
 }
 
@@ -257,8 +267,48 @@ function NewCaseModal({ open, onClose }: { open: boolean; onClose: () => void })
 }
 
 export default function Shell({ children }: { children: ReactNode }) {
-  const { db, session, route, nav, logout, visibleCases, canInstruct } = useStore();
+  const { db, session, route, nav, logout, visibleCases, canInstruct, toast } = useStore();
   const [showNew, setShowNew] = useState(false);
+  const [mobileOpen, setMobileOpen] = useState(false);
+  const [collapsed, setCollapsed] = useState(() => {
+    try {
+      return localStorage.getItem("hfmc.sidebar.collapsed") === "1";
+    } catch {
+      return false;
+    }
+  });
+  const [installEvt, setInstallEvt] = useState<BIPEvent | null>(null);
+
+  useEffect(() => {
+    const onBip = (e: Event) => {
+      e.preventDefault();
+      setInstallEvt(e as BIPEvent);
+    };
+    window.addEventListener("beforeinstallprompt", onBip);
+    return () => window.removeEventListener("beforeinstallprompt", onBip);
+  }, []);
+
+  const doInstall = async () => {
+    if (!installEvt) return;
+    await installEvt.prompt();
+    const choice = await installEvt.userChoice;
+    if (choice.outcome === "accepted") {
+      setInstallEvt(null);
+      toast("success", "HFMC installed — find it on your home screen.");
+    }
+  };
+
+  const toggleCollapse = () => {
+    setCollapsed((c) => {
+      try {
+        localStorage.setItem("hfmc.sidebar.collapsed", c ? "0" : "1");
+      } catch {
+        /* ignore */
+      }
+      return !c;
+    });
+  };
+
   const breaches = computeEscalations(db, visibleCases()).length;
   const openInstr = db.instructions.filter((i) => i.status === "Open").length;
   const pipeline = visibleCases().filter((c) => c.caseStatus === "Active").reduce((s, c) => s + c.loanAmount, 0);
@@ -285,34 +335,74 @@ export default function Shell({ children }: { children: ReactNode }) {
     route.name === "calculator" ? "Calculator" :
     route.name === "reports" ? "Reports" : "Admin";
 
+  const go = (r: Route) => {
+    nav(r);
+    setMobileOpen(false);
+  };
+
   return (
-    <div className="flex h-screen overflow-hidden">
+    <div className="flex h-[100dvh] overflow-hidden">
       <div className="app-bg" />
 
-      {/* sidebar */}
-      <aside className="side-dark w-[228px] shrink-0 border-r flex flex-col" style={{ borderColor: "#18313b", background: "rgba(11,23,29,0.88)", backdropFilter: "blur(6px)" }}>
-        <div className="flex items-center gap-2.5 px-4 py-4">
+      {/* mobile scrim */}
+      {mobileOpen && (
+        <div
+          className="fixed inset-0 z-40 lg:hidden anim-fade-in"
+          style={{ background: "rgba(4, 10, 13, 0.6)", backdropFilter: "blur(2px)" }}
+          onClick={() => setMobileOpen(false)}
+        />
+      )}
+
+      {/* sidebar — off-canvas drawer on mobile, collapsible rail on desktop */}
+      <aside
+        className={`side-dark shrink-0 border-r flex flex-col z-50
+          fixed inset-y-0 left-0 w-[268px] transition-transform duration-300 ease-[cubic-bezier(0.22,1,0.36,1)] lg:static lg:translate-x-0 lg:transition-[width]
+          ${mobileOpen ? "translate-x-0 shadow-[24px_0_60px_-20px_rgba(0,0,0,0.7)]" : "-translate-x-full"}
+          ${collapsed ? "lg:w-[70px]" : "lg:w-[232px]"}`}
+        style={{ borderColor: "#18313b", background: "rgba(11,23,29,0.94)", backdropFilter: "blur(8px)" }}
+      >
+        <div className={`flex items-center gap-2.5 px-4 pt-safe py-4 ${collapsed ? "lg:px-0 lg:justify-center" : ""}`}>
           <LogoMark size={30} />
-          <div>
+          <div className={collapsed ? "lg:hidden" : ""}>
             <div className="font-disp font-bold text-[15px] tracking-[0.04em] leading-none">HFMC</div>
             <div className="text-[9.5px] uppercase tracking-[0.18em] text-[var(--ink-faint)] mt-1">Mortgage · UAE</div>
           </div>
+          {/* collapse toggle — desktop only */}
+          <button
+            className="hidden lg:inline-flex ml-auto btn btn-ghost btn-sm !px-1.5 !py-1.5"
+            onClick={toggleCollapse}
+            title={collapsed ? "Expand sidebar" : "Collapse sidebar"}
+          >
+            {collapsed ? <IChevronR size={14} /> : <IChevronL size={14} />}
+          </button>
+          {/* close drawer — mobile only */}
+          <button className="lg:hidden ml-auto text-[var(--ink-faint)] hover:text-[var(--ink)] transition-colors p-1" onClick={() => setMobileOpen(false)} aria-label="Close menu">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round"><path d="M18 6 6 18M6 6l12 12" /></svg>
+          </button>
         </div>
 
-        <nav className="px-3 mt-2 space-y-1">
+        <nav className={`px-3 mt-2 space-y-1 flex-1 overflow-y-auto scroll-slim ${collapsed ? "lg:px-2" : ""}`}>
           {navItems.map((n) => {
             const active = route.name === n.route.name || (route.name === "case" && n.route.name === "dashboard");
             return (
-              <button key={n.label} className={`nav-item w-full text-left ${active ? "active" : ""}`} onClick={() => nav(n.route)}>
+              <button
+                key={n.label}
+                title={n.label}
+                className={`nav-item w-full text-left ${active ? "active" : ""} ${collapsed ? "lg:rail-btn" : ""}`}
+                onClick={() => go(n.route)}
+              >
                 <n.icon size={17} />
-                <span>{n.label}</span>
+                <span className={collapsed ? "lg:hidden" : ""}>{n.label}</span>
                 {!!n.badge && n.badge > 0 && (
-                  <span className="ml-auto mono text-[10px] px-1.5 py-0.5 rounded-full" style={{ background: "rgba(242,176,76,0.18)", color: "var(--amber)", border: "1px solid rgba(242,176,76,0.4)" }}>
+                  <span
+                    className={`ml-auto mono text-[10px] px-1.5 py-0.5 rounded-full ${collapsed ? "lg:hidden" : ""}`}
+                    style={{ background: "rgba(242,176,76,0.18)", color: "var(--amber)", border: "1px solid rgba(242,176,76,0.4)" }}
+                  >
                     {n.badge}
                   </span>
                 )}
                 {n.label === "Task Queue" && openInstr > 0 && canInstruct() && (
-                  <span className="ml-auto mono text-[10px] px-1.5 py-0.5 rounded" style={{ background: "rgba(87,194,234,0.15)", color: "var(--sky)" }}>
+                  <span className={`ml-auto mono text-[10px] px-1.5 py-0.5 rounded ${collapsed ? "lg:hidden" : ""}`} style={{ background: "rgba(87,194,234,0.15)", color: "var(--sky)" }}>
                     {openInstr}
                   </span>
                 )}
@@ -321,26 +411,35 @@ export default function Shell({ children }: { children: ReactNode }) {
           })}
         </nav>
 
-        <div className="mt-auto p-3">
-          <div className="card p-3 mb-2">
-            <div className="text-[10.5px] uppercase tracking-[0.12em] text-[var(--ink-faint)] font-disp font-semibold mb-1.5">SLA breaches</div>
-            <div className="flex items-center gap-2">
+        <div className={`p-3 pt-safe ${collapsed ? "lg:p-2" : ""}`}>
+          {/* live pipeline mini-panel */}
+          <div className={`card p-3 mb-2 ${collapsed ? "lg:p-2 lg:text-center" : ""}`}>
+            <div className={`text-[10.5px] uppercase tracking-[0.12em] text-[var(--ink-faint)] font-disp font-semibold mb-1.5 ${collapsed ? "lg:hidden" : ""}`}>SLA breaches</div>
+            <div className={`flex items-center gap-2 ${collapsed ? "lg:justify-center" : ""}`}>
               {breaches > 0 ? <span className="dot-overdue" /> : <span className="dot-live" />}
               <span className="font-disp font-bold text-[20px]" style={{ color: breaches > 0 ? "var(--coral)" : "var(--mint)" }}>{breaches}</span>
-              <span className="text-[11px] text-[var(--ink-faint)]">stage{breaches === 1 ? "" : "s"} past SLA</span>
+              <span className={`text-[11px] text-[var(--ink-faint)] ${collapsed ? "lg:hidden" : ""}`}>stage{breaches === 1 ? "" : "s"} past SLA</span>
             </div>
-            <div className="mt-2 pt-2 text-[11px] text-[var(--ink-faint)]" style={{ borderTop: "1px dashed var(--line)" }}>
+            <div className={`mt-2 pt-2 text-[11px] text-[var(--ink-faint)] ${collapsed ? "lg:hidden" : ""}`} style={{ borderTop: "1px dashed var(--line)" }}>
               Active pipeline <span className="mono text-[var(--ink-dim)]">{fmtMoney(pipeline)}</span>
             </div>
           </div>
 
-          <div className="flex items-center gap-2.5 px-2 py-2 rounded-lg" style={{ background: "var(--tint)" }}>
+          {/* install affordance — appears when the browser offers it */}
+          {installEvt && (
+            <button className={`btn btn-ghost btn-sm w-full justify-center mb-2 ${collapsed ? "lg:!px-1" : ""}`} onClick={doInstall} title="Install HFMC on this device">
+              <IDownload size={13} />
+              <span className={collapsed ? "lg:hidden" : ""}>Install app</span>
+            </button>
+          )}
+
+          <div className={`flex items-center gap-2.5 px-2 py-2 rounded-lg ${collapsed ? "lg:px-1 lg:justify-center" : ""}`} style={{ background: "var(--tint)" }}>
             <Avatar name={session?.name ?? "?"} size={32} />
-            <div className="min-w-0 flex-1">
+            <div className={`min-w-0 flex-1 ${collapsed ? "lg:hidden" : ""}`}>
               <div className="text-[12.5px] font-medium truncate">{session?.name}</div>
               <div className="text-[10.5px] text-[var(--ink-faint)] truncate">{session?.role}</div>
             </div>
-            <button className="text-[var(--ink-faint)] hover:text-[var(--coral)] transition-colors" onClick={logout} title="Sign out">
+            <button className={`text-[var(--ink-faint)] hover:text-[var(--coral)] transition-colors ${collapsed ? "lg:hidden" : ""}`} onClick={logout} title="Sign out">
               <ILogout size={16} />
             </button>
           </div>
@@ -349,22 +448,28 @@ export default function Shell({ children }: { children: ReactNode }) {
 
       {/* main */}
       <div className="flex-1 flex flex-col min-w-0">
-        <header className="h-[54px] shrink-0 border-b flex items-center gap-4 px-5" style={{ borderColor: "var(--line-soft)", background: "color-mix(in srgb, var(--bg) 78%, transparent)", backdropFilter: "blur(6px)" }}>
-          <h1 className="font-disp font-semibold text-[16px] m-0">{title}</h1>
+        <header
+          className="pt-safe h-[54px] shrink-0 border-b flex items-center gap-3 px-3.5 sm:px-5"
+          style={{ borderColor: "var(--line-soft)", background: "color-mix(in srgb, var(--bg) 78%, transparent)", backdropFilter: "blur(6px)" }}
+        >
+          <button className="lg:hidden btn btn-ghost btn-sm !px-2" onClick={() => setMobileOpen(true)} aria-label="Open menu">
+            <MenuIcon />
+          </button>
+          <h1 className="font-disp font-semibold text-[15px] sm:text-[16px] m-0 truncate">{title}</h1>
           {route.name === "case" && (
             <span className="text-[12px] text-[var(--ink-faint)] hidden sm:inline">the full story of one file</span>
           )}
-          <div className="ml-auto flex items-center gap-3">
+          <div className="ml-auto flex items-center gap-2 sm:gap-3">
             <Clock />
             <ThemeToggle compact />
             <button className="btn btn-primary btn-sm" onClick={() => setShowNew(true)}>
-              <IPlus size={14} /> New case
+              <IPlus size={14} /> <span className="hidden min-[420px]:inline">New case</span>
             </button>
           </div>
         </header>
 
-        <main className="flex-1 overflow-y-auto">
-          <div key={JSON.stringify(route)} className="max-w-[1240px] mx-auto px-5 py-5 anim-fade-in">
+        <main className="flex-1 overflow-y-auto overscroll-contain">
+          <div key={JSON.stringify(route)} className="max-w-[1240px] mx-auto px-3.5 sm:px-5 py-4 sm:py-5 anim-fade-in pb-8 xl:pb-5">
             {children}
           </div>
         </main>

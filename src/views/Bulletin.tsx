@@ -75,7 +75,7 @@ function DirectiveCard({ b, dense = false }: { b: BulletinItem; dense?: boolean 
 
   return (
     <div className="card card-hover p-4 anim-fade-up" style={{ borderLeft: `3px solid ${edge}`, opacity: b.status === "Done" || b.dropped ? 0.7 : 1 }}>
-      <div className="flex items-start gap-3">
+      <div className="flex items-start gap-3 max-sm:flex-wrap">
         <Avatar name={issuer?.name ?? "?"} size={32} />
         <div className="min-w-0 flex-1">
           <div className="flex flex-wrap items-baseline gap-x-2 gap-y-0.5">
@@ -110,7 +110,7 @@ function DirectiveCard({ b, dense = false }: { b: BulletinItem; dense?: boolean 
 
         {/* actions */}
         {!dense && (
-          <div className="flex flex-col items-end gap-1.5 shrink-0">
+          <div className="flex flex-col items-end gap-1.5 sm:shrink-0 max-sm:flex-row max-sm:flex-wrap max-sm:items-center max-sm:justify-end max-sm:w-full">
             {canAct && (
               <>
                 <button
