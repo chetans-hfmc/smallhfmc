@@ -57,14 +57,10 @@ export function generateMortgagePdf(
     doc.setTextColor(214, 178, 106);
     doc.text(ref, W - M, 32, { align: "right" });
     doc.setTextColor(180, 176, 166);
-    doc.text(
-      now.toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "numeric" }),
-      W - M, 50, { align: "right" }
-    );
+    doc.text(now.toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "numeric" }), W - M, 50, { align: "right" });
     y = 100;
   };
 
-  /* page footer written once all pages exist */
   const footer = () => {
     const total = doc.getNumberOfPages();
     for (let p = 1; p <= total; p++) {
@@ -94,7 +90,6 @@ export function generateMortgagePdf(
     y += 20;
   };
 
-  /* ledger-style rows: label … dotted leader … right-aligned bold value (wraps if long) */
   const kv = (rows: [string, string][]) => {
     const VALUE_MAX = 268;
     for (const [k, v] of rows) {
@@ -128,8 +123,6 @@ export function generateMortgagePdf(
     }
   };
 
-  /* one table engine for the whole document: wrapped cells, dynamic row heights,
-     right-aligned figures, zebra rows, bold totals, header repeats after page breaks */
   const wtable = (rawCols: TCol[], rows: (string | number)[][], foot?: (string | number)[][]) => {
     const scale = CW / rawCols.reduce((s, c) => s + c.width, 0);
     const cols = rawCols.map((c) => ({ ...c, width: c.width * scale }));
@@ -226,7 +219,7 @@ export function generateMortgagePdf(
 
   const coName = inp.coBorrower?.name?.trim() ? ` + ${inp.coBorrower.name.trim()}` : "";
 
-  /* ============ PAGE 1 — Eligibility summary ============ */
+  /* ============ PAGE 1 ============ */
   header();
   section("Applicant & Property");
   kv([
@@ -246,18 +239,9 @@ export function generateMortgagePdf(
   kv([
     ["Eligible monthly income", `${fmtAED(res.eligibleIncome)}${inp.coBorrower ? " (combined)" : ""}`],
     ...(inp.coBorrower
-      ? ([
-          ["  · Applicant", fmtAED(res.ownIncome)],
-          ["  · Co-borrower", fmtAED(res.coIncome)],
-        ] as [string, string][])
+      ? ([["  · Applicant", fmtAED(res.ownIncome)], ["  · Co-borrower", fmtAED(res.coIncome)]] as [string, string][])
       : []),
     ["Existing monthly liabilities", `${fmtAED(res.existingEmis)}${inp.coBorrower ? " (combined)" : ""}`],
-    ...(inp.coBorrower
-      ? ([
-          ["  · Applicant EMIs", fmtAED(res.ownEmis)],
-          ["  · Co-borrower EMIs", fmtAED(res.coEmis)],
-        ] as [string, string][])
-      : []),
     ["Current DBR", fmtPct(res.currentDbr)],
     ["Maximum DBR", fmtPct(res.maxDbr)],
     ["Residual DBR", fmtPct(res.residualDbr)],
@@ -302,7 +286,7 @@ export function generateMortgagePdf(
     ["DBR after proposed mortgage", fmtPct(res.dbrAfter)],
   ]);
 
-  /* ============ PAGE 2 — Supporting calculation ============ */
+  /* ============ PAGE 2 ============ */
   header(true);
   const incomeCols: TCol[] = [
     { header: "Source", width: 150 },
@@ -328,10 +312,7 @@ export function generateMortgagePdf(
       inp.coBorrower.incomes.length > 0
         ? inp.coBorrower.incomes.map((r) => [r.source, r.frequency, fmtAED(r.amount), `${r.eligiblePct}%`, fmtAED(incomeMonthly(r))])
         : [["No income entered", "", "", "", ""]],
-      [
-        ["Co-borrower eligible income", "", "", "", fmtAED(res.coIncome)],
-        ["Combined eligible income", "", "", "", fmtAED(res.eligibleIncome)],
-      ]
+      [["Co-borrower eligible income", "", "", "", fmtAED(res.coIncome)]]
     );
   }
 
@@ -359,18 +340,15 @@ export function generateMortgagePdf(
       inp.coBorrower.liabilities.length > 0
         ? inp.coBorrower.liabilities.map((r) => [r.name, r.type, fmtAED(r.limitOrOutstanding), r.method, fmtAED(liabilityEmi(r))])
         : [["No liabilities declared", "", "", "", ""]],
-      [
-        ["Co-borrower existing EMIs", "", "", "", fmtAED(res.coEmis)],
-        ["Combined existing EMIs", "", "", "", fmtAED(res.existingEmis)],
-      ]
+      [["Co-borrower existing EMIs", "", "", "", fmtAED(res.coEmis)]]
     );
   }
 
   section("Rate, Stress & Tenor");
   kv([
-    ["Rate basis", `${fmtPct(res.actualRate)} actual + ${res.loadFactor.toFixed(2)}% load = ${fmtPct(res.assessmentRate)} assessment`],
-    ["Age calculation", `${res.ageNowYears}y + ${inp.marginMonths}m margin → final age ${inp.finalAge} → ${tenorLabel(res.remainingMonths)} available`],
-    ["Tenor used", `${tenorLabel(res.maxTenorMonths)}${res.tenorLimitedBy === "co-borrower" ? ` (limited by co-borrower, age ${res.coAgeYears})` : ""}`],
+    ["Assessment basis", `${fmtPct(res.actualRate)} actual + ${res.loadFactor.toFixed(2)}% load = ${fmtPct(res.assessmentRate)} assessment`],
+    ["Age calculation", `${res.ageNowYears}y now + ${inp.marginMonths}m margin → final age ${inp.finalAge} → ${tenorLabel(res.remainingMonths)} available`],
+    ["Tenor used", tenorLabel(res.maxTenorMonths)],
   ]);
   y += 6;
 
@@ -399,7 +377,7 @@ export function generateMortgagePdf(
   }
   y += trailH + 12;
 
-  /* ============ PAGES 3–4 — What-if analysis ============ */
+  /* ============ PAGE 3 ============ */
   const scenCols = (first: string): TCol[] => [
     { header: first, width: 175 },
     { header: "Current DBR", width: 80, align: "right" },
@@ -422,16 +400,15 @@ export function generateMortgagePdf(
   doc.setFontSize(9);
   doc.setTextColor(...FAINT);
   const introLines = doc.splitTextToSize(
-    `Each scenario re-runs the full calculation with one input changed. Baseline final MPBF: ${fmtAED(res.finalMpbf)} — green deltas add eligibility, red reduce it.`,
+    `Each scenario re-runs the full calculation with one input changed. Baseline final MPBF: ${fmtAED(res.finalMpbf)}.`,
     CW
   ) as string[];
   for (const l of introLines) {
     doc.text(l, M, y);
     y += 12;
   }
-  y += 8;
+  y += 6;
 
-  /* headline first: the one line a credit officer should remember */
   if (keyObservation) {
     const lines = doc.splitTextToSize(keyObservation, CW - 26) as string[];
     const boxH = lines.length * 12.5 + 18;
@@ -476,7 +453,6 @@ export function generateMortgagePdf(
     wtable(simpleCols("Scenario", "Eligible income"), income.body);
   }
 
-  /* closing block — kept together on whichever page has room */
   if (y > BOTTOM - 130) {
     doc.addPage();
     header();
@@ -486,7 +462,7 @@ export function generateMortgagePdf(
   doc.setFontSize(8.5);
   doc.setTextColor(...FAINT);
   const disclaimer = doc.splitTextToSize(
-    "Prepared with the HFMC eligibility calculator. Figures are indicative, based on the inputs provided and CBUAE-style DBR/LTV limits; the LTV applied and tenor treatment follow the selected assumptions and lender policy may differ. This is not a bank approval, sanction or binding offer. Final eligibility is at the sole discretion of the lender.",
+    "Prepared with the HFMC eligibility calculator. Figures are indicative, based on the inputs provided and CBUAE-style DBR/LTV limits; lender policy may differ. This is not a bank approval, sanction or binding offer. Final eligibility is at the sole discretion of the lender.",
     CW
   ) as string[];
   for (const l of disclaimer) {

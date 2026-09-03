@@ -31,7 +31,7 @@ function ReportCard({ title, sub, onExport, children, span, extra }: { title: st
 
 function GroupLabel({ children }: { children: ReactNode }) {
   return (
-    <div className="col-span-1 lg:col-span-2 flex items-center gap-3 mt-2">
+    <div className="col-span-1 xl:col-span-2 flex items-center gap-3 mt-2">
       <span className="font-disp font-bold text-[12px] uppercase tracking-[0.16em]" style={{ color: "var(--amber)" }}>{children}</span>
       <span className="h-px flex-1" style={{ background: "var(--line-soft)" }} />
     </div>
@@ -53,24 +53,20 @@ export default function Reports() {
   const [bizBank, setBizBank] = useState("All");
   const [bizOwner, setBizOwner] = useState("All");
 
-  /* 1 — why pending */
   const whyRows = db.whyPending
     .map((w) => ({ label: w.label, value: openTasks.filter((t) => t.whyPending === w.label).length, color: TONE_HEX.amber }))
     .filter((r) => r.value > 0)
     .sort((a, b) => b.value - a.value);
 
-  /* 2 — waiting for */
   const waitSegs = db.waitingFor
     .map((w, i) => ({ label: w.label, value: openTasks.filter((t) => t.waitingFor === w.label).length, color: PALETTE[i % PALETTE.length] }))
     .filter((s) => s.value > 0);
 
-  /* 3 — overdue & at risk */
   const risky = openCases
     .map((c) => ({ c, s: statusOf(c), nt: openTasks.filter((t) => t.caseId === c.id).sort((a, b) => a.dueDate.localeCompare(b.dueDate))[0] }))
     .filter((r) => r.s === "Overdue" || r.s === "At Risk")
     .sort((a, b) => (a.nt?.dueDate ?? "9999").localeCompare(b.nt?.dueDate ?? "9999"));
 
-  /* 4 — owner workload */
   const owners = Array.from(new Set(openTasks.map((t) => t.ownerId)))
     .map((id) => {
       const mine = openTasks.filter((t) => t.ownerId === id);
@@ -78,7 +74,6 @@ export default function Reports() {
     })
     .sort((a, b) => b.open - a.open);
 
-  /* 5 — stage ageing */
   const stageRows = [...db.stages]
     .sort((a, b) => a.sortOrder - b.sortOrder)
     .map((s) => {
@@ -88,10 +83,8 @@ export default function Reports() {
     })
     .filter((r) => r.value > 0);
 
-  /* 6 — no next action */
   const noAction = openCases.filter((c) => statusOf(c) === "No Action").sort((a, b) => ageDays(b.createdAt) - ageDays(a.createdAt));
 
-  /* 7 — monthly business */
   const months: string[] = [];
   for (let i = 5; i >= 0; i--) {
     const d = new Date();
@@ -109,7 +102,6 @@ export default function Reports() {
     earn: bizFiltered.filter((c) => (c.closedDate ?? "").slice(0, 7) === m).reduce((s, c) => s + commissionFor(c, db.banks).gross, 0),
   }));
 
-  /* 8 — conversion */
   const conv = months.map((m) => {
     const opened = cases.filter((c) => c.createdAt.slice(0, 7) === m).length;
     const won = booked.filter((c) => (c.closedDate ?? "").slice(0, 7) === m).length;
@@ -120,7 +112,6 @@ export default function Reports() {
   const totWon = conv.reduce((s, x) => s + x.won, 0);
   const totLost = conv.reduce((s, x) => s + x.lost, 0);
 
-  /* 9 — leaderboard */
   const leaders = db.users
     .map((u) => {
       const won = booked.filter((c) => c.ownerId === u.id);
@@ -130,7 +121,6 @@ export default function Reports() {
     .filter((r) => r.count > 0)
     .sort((a, b) => b.amount - a.amount);
 
-  /* 10 — commission earnings per bank */
   const earnRows = db.banks
     .map((b) => {
       const won = booked.filter((c) => c.wonBank === b.name);
@@ -143,7 +133,6 @@ export default function Reports() {
     .filter((r) => r.count > 0 || r.inPlay > 0)
     .sort((a, b) => b.gross - a.gross);
 
-  /* 11 — partner commission */
   const partnerNames = Array.from(new Set(cases.filter((c) => c.partner).map((c) => c.partner!.name)));
   const partnerRows = partnerNames
     .map((name) => {
@@ -157,7 +146,6 @@ export default function Reports() {
     })
     .sort((a, b) => b.payout - a.payout);
 
-  /* 12 — bank performance */
   const bankPerf = db.banks
     .map((b) => {
       const submitted = openCases.filter((c) => c.banks.includes(b.name));
@@ -169,13 +157,11 @@ export default function Reports() {
     .filter((r) => r.inProgress > 0 || r.closed > 0)
     .sort((a, b) => b.volume - a.volume);
 
-  /* 13 — bank × stage ageing */
   const ageStages = [...db.stages].filter((s) => s.label !== "Closure" && s.label !== "Closed").sort((a, b) => a.sortOrder - b.sortOrder);
   const bankAge = db.banks
     .map((b) => ({ b, cells: ageStages.map((st) => { const cs = openCases.filter((c) => c.banks.includes(b.name) && c.stage === st.label); return cs.length ? Math.round(cs.reduce((s, c) => s + ageDays(c.createdAt), 0) / cs.length) : null; }) }))
     .filter((r) => r.cells.some((x) => x != null));
 
-  /* 14 — escalations */
   const escalations = computeEscalations(db, cases);
 
   const exportOk = (name: string, header: string[], rows: (string | number)[][]) => {
@@ -184,7 +170,7 @@ export default function Reports() {
   };
 
   return (
-    <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+    <div className="grid grid-cols-1 xl:grid-cols-2 gap-4">
       <GroupLabel>Operational — the floor, today</GroupLabel>
 
       <ReportCard title="Why pending" sub={`${openTasks.length} open tasks classified by blocker`} onExport={() => exportOk("why-pending.csv", ["Reason", "Open tasks"], whyRows.map((r) => [r.label, r.value]))}>
@@ -201,7 +187,7 @@ export default function Reports() {
         ) : (
           <div className="space-y-1.5 max-h-[300px] overflow-y-auto pr-1">
             {risky.map(({ c, s, nt }) => (
-              <button key={c.id} className="rowlink w-full flex items-center gap-3 text-left px-2.5 py-2 rounded-lg" onClick={() => nav({ name: "case", id: c.id })}>
+              <button key={c.id} className="rowlink w-full flex items-center gap-3 text-left px-2.5 py-2 rounded-lg cursor-pointer" onClick={() => nav({ name: "case", id: c.id })}>
                 <span className={s === "Overdue" ? "dot-overdue shrink-0" : "w-[7px] h-[7px] rounded-full shrink-0"} style={s === "At Risk" ? { background: "var(--amber)" } : undefined} />
                 <span className="min-w-0 flex-1">
                   <span className="mono text-[11.5px] block" style={{ color: "var(--amber)" }}>{c.caseNumber}</span>
@@ -256,7 +242,7 @@ export default function Reports() {
         ) : (
           <div className="space-y-1.5 max-h-[260px] overflow-y-auto pr-1">
             {noAction.map((c) => (
-              <button key={c.id} className="rowlink w-full flex items-center gap-3 text-left px-2.5 py-2 rounded-lg" onClick={() => nav({ name: "case", id: c.id })}>
+              <button key={c.id} className="rowlink w-full flex items-center gap-3 text-left px-2.5 py-2 rounded-lg cursor-pointer" onClick={() => nav({ name: "case", id: c.id })}>
                 <Chip tone="slate">{ageDays(c.createdAt)}d</Chip>
                 <span className="min-w-0 flex-1">
                   <span className="mono text-[11.5px] block" style={{ color: "var(--amber)" }}>{c.caseNumber}</span>
@@ -280,7 +266,7 @@ export default function Reports() {
               <option>All banks</option>
               {db.banks.map((b) => <option key={b.id}>{b.name}</option>)}
             </select>
-            <select className="select !w-auto !py-1 text-[11.5px]" value={bizOwner} onChange={(e) => setBizOwner(e.target.value)}>
+            <select className="select !w-auto !py-1 text-[11.5px] hidden md:block" value={bizOwner} onChange={(e) => setBizOwner(e.target.value)}>
               <option value="All">All owners</option>
               {db.users.filter((u) => u.role !== "Head of Company" && u.role !== "PA to HoC").map((u) => <option key={u.id} value={u.id}>{u.name.split(" ")[0]}</option>)}
             </select>
@@ -348,7 +334,7 @@ export default function Reports() {
         <div className="space-y-2">
           {leaders.length === 0 && <p className="text-[12.5px] text-[var(--ink-faint)]">No booked cases yet.</p>}
           {leaders.map((r, i) => (
-            <div key={r.u.id} className="flex items-center gap-3 px-2 py-1.5 rounded-lg" style={{ background: i === 0 ? "rgba(242,176,76,0.06)" : undefined }}>
+            <div key={r.u.id} className="flex items-center gap-3 px-2 py-1.5 rounded-lg" style={{ background: i === 0 ? "var(--amber-tint)" : undefined }}>
               <span className="mono text-[12px] w-5 text-center" style={{ color: i === 0 ? "var(--amber)" : "var(--ink-faint)" }}>{i + 1}</span>
               <Avatar name={r.u.name} size={26} />
               <span className="text-[12.5px] flex-1 truncate">{r.u.name}</span>
@@ -365,7 +351,7 @@ export default function Reports() {
         title="Commission earnings by bank"
         sub="Our take per bank at admin-managed rates — partners already deducted"
         onExport={() => exportOk("commission-earnings.csv", ["Bank", "Rate %", "Booked", "Volume (AED)", "Gross (AED)", "Partner payout (AED)", "Net (AED)", "In play", "Pipeline (AED)"], earnRows.map((r) => [r.b.name, r.b.ratePct, r.count, r.volume, Math.round(r.gross), Math.round(r.payout), Math.round(r.net), r.inPlay, r.pipeline]))}
-        span="lg:col-span-2"
+        span="xl:col-span-2"
       >
         {earnRows.length === 0 ? (
           <p className="text-[12.5px] text-[var(--ink-faint)]">No bookings yet.</p>
@@ -389,7 +375,7 @@ export default function Reports() {
                     <td className="mono text-[var(--ink-dim)]">{fmtMoney(r.pipeline)}</td>
                   </tr>
                 ))}
-                <tr style={{ cursor: "default", background: "rgba(242,176,76,0.04)" }}>
+                <tr style={{ cursor: "default", background: "var(--amber-tint)" }}>
                   <td className="font-disp font-semibold">Total</td>
                   <td />
                   <td className="mono font-semibold">{earnRows.reduce((s, r) => s + r.count, 0)}</td>
@@ -410,7 +396,7 @@ export default function Reports() {
         title="Partner commission"
         sub="What agents, brokers and referrers have earned — and what's accruing on live files"
         onExport={() => exportOk("partner-commission.csv", ["Kind", "Partner", "Share %", "Introduced", "Booked", "Booked volume (AED)", "Gross commission (AED)", "Payout due (AED)", "Live files", "Accruing payout (AED)"], partnerRows.map((r) => [r.kind, r.name, r.share, r.intro, r.bookedN, r.bookedVol, Math.round(r.gross), Math.round(r.payout), r.pendingCases, Math.round(r.pendingPayout)]))}
-        span="lg:col-span-2"
+        span="xl:col-span-2"
       >
         {partnerRows.length === 0 ? (
           <p className="text-[12.5px] text-[var(--ink-faint)]">No sourced cases yet.</p>
@@ -494,7 +480,7 @@ export default function Reports() {
         title="SLA escalations"
         sub="Cases past the allowed days in their current stage (bank-specific rules win)"
         onExport={() => exportOk("sla-escalations.csv", ["Case", "Customer", "Stage", "Bank", "Days in stage", "SLA max", "Over by"], escalations.map((e) => [e.c.caseNumber, e.c.customer, e.c.stage, primaryBank(e.c) ?? "TBC", e.days, e.rule.maxDays, e.days - e.rule.maxDays]))}
-        span="lg:col-span-2"
+        span="xl:col-span-2"
       >
         {escalations.length === 0 ? (
           <div className="flex items-center gap-2 text-[12.5px] py-2" style={{ color: "var(--mint)" }}>
@@ -503,7 +489,7 @@ export default function Reports() {
         ) : (
           <div className="grid sm:grid-cols-2 gap-2">
             {escalations.map((e) => (
-              <button key={e.c.id} className="flex items-center gap-3 text-left px-3 py-2.5 rounded-lg transition-colors hover:bg-[rgba(242,115,99,0.08)]" style={{ border: "1px solid rgba(242,115,99,0.25)" }} onClick={() => nav({ name: "case", id: e.c.id })}>
+              <button key={e.c.id} className="flex items-center gap-3 text-left px-3 py-2.5 rounded-lg transition-colors hover:bg-[rgba(242,115,99,0.08)] cursor-pointer" style={{ border: "1px solid rgba(242,115,99,0.25)" }} onClick={() => nav({ name: "case", id: e.c.id })}>
                 <span className="dot-overdue shrink-0" />
                 <span className="min-w-0 flex-1">
                   <span className="mono text-[11.5px] block" style={{ color: "var(--coral)" }}>{e.c.caseNumber}</span>

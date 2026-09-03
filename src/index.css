@@ -44,6 +44,7 @@
   --ink-faint: #617e7c;
   --amber: #f2b04c;
   --amber-deep: #d99427;
+  --amber-ink: #231a08;
   --mint: #43d69b;
   --coral: #f27363;
   --sky: #57c2ea;
@@ -61,7 +62,6 @@
 
 /* the sidebar keeps the deep-slate identity in both themes */
 .side-dark {
-  --bg: #0b171d;
   --bg2: #0e1d24;
   --surface: #12242c;
   --raised: #172d36;
@@ -72,7 +72,6 @@
   --ink-faint: #617e7c;
   --amber: #f2b04c;
   --amber-deep: #d99427;
-  --amber-ink: #231a08;
   --mint: #43d69b;
   --coral: #f27363;
   --sky: #57c2ea;
@@ -83,6 +82,7 @@
   --track: rgba(232, 241, 239, 0.07);
   --amber-tint: rgba(242, 176, 76, 0.09);
   --amber-line: rgba(242, 176, 76, 0.28);
+  --neutral: rgba(232, 241, 239, 0.25);
   --shadow: none;
   color-scheme: dark;
 }
@@ -105,15 +105,20 @@ body {
 .mono { font-family: var(--font-mono); }
 ::selection { background: rgba(242, 176, 76, 0.3); }
 
-/* ---------- ambient layered background ---------- */
+/* keep iOS from zooming inputs on focus */
+@media (max-width: 767px) {
+  .input, .select, .textarea { font-size: 16px; }
+}
+
+/* ---------- ambient layered background + drifting orbs ---------- */
 .app-bg {
   position: fixed;
   inset: 0;
   z-index: -1;
+  overflow: hidden;
   background:
     radial-gradient(1100px 520px at 85% -10%, rgba(3, 105, 161, 0.06), transparent 60%),
     radial-gradient(900px 600px at -10% 110%, rgba(180, 83, 9, 0.05), transparent 55%),
-    radial-gradient(700px 500px at 50% 50%, rgba(4, 120, 87, 0.035), transparent 60%),
     var(--bg);
   transition: background 0.25s ease;
 }
@@ -121,7 +126,6 @@ body {
   background:
     radial-gradient(1100px 520px at 85% -10%, rgba(87, 194, 234, 0.07), transparent 60%),
     radial-gradient(900px 600px at -10% 110%, rgba(242, 176, 76, 0.06), transparent 55%),
-    radial-gradient(700px 500px at 50% 50%, rgba(67, 214, 155, 0.03), transparent 60%),
     var(--bg);
 }
 .app-bg::before {
@@ -139,13 +143,31 @@ body {
     linear-gradient(rgba(232, 241, 239, 0.025) 1px, transparent 1px),
     linear-gradient(90deg, rgba(232, 241, 239, 0.025) 1px, transparent 1px);
 }
-.app-bg::after {
-  content: "";
+.orb {
   position: absolute;
-  left: 0; right: 0; top: 0;
-  height: 220px;
-  background: linear-gradient(180deg, var(--bg), transparent);
-  opacity: 0.85;
+  border-radius: 50%;
+  filter: blur(70px);
+  opacity: 0.5;
+  pointer-events: none;
+  will-change: transform;
+}
+.orb-a {
+  width: 420px; height: 420px;
+  background: rgba(180, 83, 9, 0.12);
+  top: -120px; left: -100px;
+  animation: orbDrift 26s ease-in-out infinite alternate;
+}
+.orb-b {
+  width: 360px; height: 360px;
+  background: rgba(3, 105, 161, 0.1);
+  bottom: -140px; right: -80px;
+  animation: orbDrift 32s ease-in-out infinite alternate-reverse;
+}
+[data-theme="dark"] .orb-a { background: rgba(242, 176, 76, 0.08); }
+[data-theme="dark"] .orb-b { background: rgba(87, 194, 234, 0.07); }
+@keyframes orbDrift {
+  from { transform: translate(0, 0) scale(1); }
+  to { transform: translate(60px, 40px) scale(1.12); }
 }
 
 /* ---------- surfaces ---------- */
@@ -164,7 +186,7 @@ body {
 }
 [data-theme="dark"] .card-hover:hover { box-shadow: 0 10px 30px -14px rgba(0, 0, 0, 0.55); }
 
-.rowlink { transition: background 0.13s ease; cursor: pointer; background: none; border: none; text-align: left; }
+.rowlink { transition: background 0.13s ease; }
 .rowlink:hover { background: var(--hover); }
 
 /* ---------- controls ---------- */
@@ -197,6 +219,19 @@ body {
 [data-theme="dark"] .btn-danger:hover { background: rgba(242, 115, 99, 0.22); }
 .btn-sm { padding: 5px 10px; font-size: 12px; border-radius: 7px; }
 .btn:disabled { opacity: 0.45; cursor: not-allowed; transform: none; box-shadow: none; }
+
+@media (pointer: coarse) {
+  .btn { min-height: 40px; }
+  .btn-sm { min-height: 36px; }
+  .chip { min-height: 32px; }
+}
+
+/* keyboard focus rings */
+.btn:focus-visible, .input:focus-visible, .select:focus-visible, .textarea:focus-visible,
+.chip:focus-visible, .nav-item:focus-visible, a:focus-visible, button:focus-visible {
+  outline: 2px solid var(--amber);
+  outline-offset: 2px;
+}
 
 .input, .select, .textarea {
   width: 100%;
@@ -283,6 +318,9 @@ input[type="date"]::-webkit-calendar-picker-indicator { opacity: 0.55; cursor: p
   border-radius: 5px;
   border: 1px solid;
   white-space: nowrap;
+  cursor: pointer;
+  background: transparent;
+  color: var(--ink);
 }
 
 /* ---------- nav ---------- */
@@ -300,6 +338,9 @@ input[type="date"]::-webkit-calendar-picker-indicator { opacity: 0.55; cursor: p
   transition: all 0.15s ease;
   border: 1px solid transparent;
   position: relative;
+  background: none;
+  width: 100%;
+  text-align: left;
 }
 .nav-item:hover { color: var(--ink); background: var(--hover); }
 .nav-item.active {
@@ -317,6 +358,9 @@ input[type="date"]::-webkit-calendar-picker-indicator { opacity: 0.55; cursor: p
   border-radius: 2px;
   background: var(--amber);
 }
+
+/* sidebar collapse animation */
+.side-rail { transition: width 0.28s cubic-bezier(0.22, 1, 0.36, 1); }
 
 /* ---------- animation ---------- */
 @keyframes fadeUp {
@@ -350,7 +394,6 @@ input[type="date"]::-webkit-calendar-picker-indicator { opacity: 0.55; cursor: p
   0%, 100% { opacity: 1; }
   50% { opacity: 0.35; }
 }
-@keyframes flowDash { to { stroke-dashoffset: -26; } }
 
 .anim-fade-up { animation: fadeUp 0.45s cubic-bezier(0.22, 1, 0.36, 1) both; }
 .anim-fade-in { animation: fadeIn 0.3s ease both; }
@@ -368,7 +411,6 @@ input[type="date"]::-webkit-calendar-picker-indicator { opacity: 0.55; cursor: p
   animation: pulseDot 1.8s ease-out infinite;
 }
 .blink { animation: tickerPulse 1.4s ease infinite; }
-.flow-line { stroke-dasharray: 5 8; animation: flowDash 1.6s linear infinite; }
 
 /* ---------- scrollbar ---------- */
 ::-webkit-scrollbar { width: 10px; height: 10px; }
@@ -376,23 +418,30 @@ input[type="date"]::-webkit-calendar-picker-indicator { opacity: 0.55; cursor: p
 ::-webkit-scrollbar-thumb { background: var(--line); border-radius: 6px; border: 2px solid var(--bg); }
 ::-webkit-scrollbar-thumb:hover { background: var(--ink-faint); }
 
+/* hide horizontal scrollbar on swipe strips but keep scroll */
+.no-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
+.no-scrollbar::-webkit-scrollbar { display: none; }
+.scroll-snap-x { scroll-snap-type: x mandatory; }
+.scroll-snap-x > * { scroll-snap-align: start; }
+
+/* ---------- PWA safe areas ---------- */
+.safe-t { padding-top: env(safe-area-inset-top); }
+.safe-b { padding-bottom: env(safe-area-inset-bottom); }
+.pb-safe { padding-bottom: calc(env(safe-area-inset-bottom) + 10px); }
+
 /* ---------- bank-facing document — fixed paper palette in BOTH themes ---------- */
 .paper {
   background: #ffffff;
   color: #1b262b;
   border: 1px solid #d8e0e3;
   border-radius: 6px;
-  box-shadow:
-    0 1px 2px rgba(15, 23, 42, 0.08),
-    0 26px 60px -18px rgba(15, 23, 42, 0.5);
+  box-shadow: 0 1px 2px rgba(15, 23, 42, 0.08), 0 26px 60px -18px rgba(15, 23, 42, 0.5);
   font-family: var(--font-body);
   overflow: hidden;
 }
 html[data-theme="light"] .paper {
   border-color: #dbe3e6;
-  box-shadow:
-    0 1px 2px rgba(15, 23, 42, 0.05),
-    0 18px 44px -16px rgba(15, 23, 42, 0.24);
+  box-shadow: 0 1px 2px rgba(15, 23, 42, 0.05), 0 18px 44px -16px rgba(15, 23, 42, 0.24);
 }
 .paper-band {
   background: #14212a;
@@ -403,9 +452,7 @@ html[data-theme="light"] .paper {
 .paper-band::after {
   content: "";
   position: absolute;
-  left: 0;
-  right: 0;
-  bottom: 0;
+  left: 0; right: 0; bottom: 0;
   height: 3px;
   background: linear-gradient(90deg, #d99427, #f2b04c 55%, #d99427);
 }
@@ -431,10 +478,8 @@ html[data-theme="light"] .paper {
 .paper-sec::after {
   content: "";
   position: absolute;
-  left: 0;
-  bottom: 0;
-  width: 24px;
-  height: 3px;
+  left: 0; bottom: 0;
+  width: 24px; height: 3px;
   border-radius: 1px;
   background: #c68a28;
 }
@@ -529,6 +574,7 @@ html[data-theme="light"] .paper {
   color: #33434c;
 }
 .paper-trail div::before { content: "→  "; color: #a86f1c; }
+
 .paper-page-label {
   font-family: var(--font-mono);
   font-size: 10px;
@@ -555,37 +601,4 @@ html[data-theme="light"] .paper {
 .stagger > *:nth-child(4) { animation-delay: 0.17s; }
 .stagger > *:nth-child(5) { animation-delay: 0.22s; }
 .stagger > *:nth-child(6) { animation-delay: 0.27s; }
-
-/* ---------- ambient drift — the backdrop breathes very slowly ---------- */
-@keyframes bgdrift {
-  0% { transform: translate3d(0, 0, 0) scale(1); }
-  50% { transform: translate3d(1.5%, -1.5%, 0) scale(1.03); }
-  100% { transform: translate3d(0, 0, 0) scale(1); }
-}
-.app-bg::before { animation: bgdrift 26s ease-in-out infinite; }
-
-/* ---------- mobile refinements ---------- */
-/* 16px inputs stop iOS from zooming the page on focus */
-@media (max-width: 640px) {
-  .input, .select, .textarea { font-size: 16px; padding: 10px 12px; }
-  .btn { min-height: 38px; }
-  .tbl th, .tbl td { padding: 9px 10px; }
-}
-
-/* tap feedback everywhere on touch */
-@media (hover: none) {
-  .btn:active { transform: scale(0.97); }
-  .card-hover:active { transform: scale(0.995); }
-}
-
-/* safe-area aware bottom chrome (installed PWA on notched phones) */
-.pb-safe { padding-bottom: calc(env(safe-area-inset-bottom, 0px) + 10px); }
-.pt-safe { padding-top: env(safe-area-inset-top, 0px); }
-
-/* slim scrollbars on horizontally-scrolling strips */
-.scroll-slim::-webkit-scrollbar { height: 6px; }
-.scroll-slim { scrollbar-width: thin; }
-
-/* the collapsed desktop rail */
-.rail-btn { justify-content: center; padding-left: 0; padding-right: 0; }
-.rail-btn .rail-tip { display: none; }
+.stagger > *:nth-child(7) { animation-delay: 0.32s; }

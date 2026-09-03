@@ -256,3 +256,25 @@ export const ITarget = make(
     <circle cx="12" cy="12" r="0.8" />
   </>
 );
+
+export const IMenu = make(
+  <>
+    <path d="M4 6.5h16" />
+    <path d="M4 12h16" />
+    <path d="M4 17.5h10" />
+  </>
+);
+
+export const IMail = make(
+  <>
+    <rect x="3" y="5" width="18" height="14.5" rx="2" />
+    <path d="m3.5 7.5 8.5 6 8.5-6" />
+  </>
+);
+
+export const ISend = make(
+  <>
+    <path d="M21 3.5 3.5 10.2l6.6 2.7L12.8 19.5 21 3.5Z" />
+    <path d="m10.1 12.9 4.3-4.3" />
+  </>
+);

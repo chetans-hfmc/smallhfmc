@@ -55,14 +55,17 @@ export default function Login() {
   };
 
   return (
-    <div className="min-h-screen grid lg:grid-cols-[1.05fr_1fr]">
-      <div className="app-bg" />
+    <div className="min-h-screen grid xl:grid-cols-[1.05fr_1fr]">
+      <div className="app-bg">
+        <div className="orb orb-a" />
+        <div className="orb orb-b" />
+      </div>
       <div className="absolute top-4 right-4 z-10">
         <ThemeToggle compact />
       </div>
 
       {/* left: live picture of the business */}
-      <div className="hidden lg:flex flex-col justify-center px-14 py-12 border-r relative overflow-hidden" style={{ borderColor: "var(--line-soft)" }}>
+      <div className="hidden xl:flex flex-col justify-center px-14 py-12 border-r relative overflow-hidden" style={{ borderColor: "var(--line-soft)" }}>
         <div className="flex items-center gap-3 mb-10">
           <LogoMark size={38} />
           <div>
@@ -100,7 +103,7 @@ export default function Login() {
       {/* right: sign in */}
       <div className="flex items-center justify-center px-6 py-12">
         <div className="w-full max-w-[400px] anim-fade-up">
-          <div className="lg:hidden flex items-center gap-2.5 mb-8">
+          <div className="xl:hidden flex items-center gap-2.5 mb-8">
             <LogoMark size={30} />
             <div>
               <div className="font-disp font-bold text-[15px] tracking-[0.04em] leading-none">HFMC</div>
@@ -148,7 +151,7 @@ export default function Login() {
               {DEMOS.map((d) => (
                 <button
                   key={d.email}
-                  className="card card-hover text-left px-3 py-2.5"
+                  className="card card-hover text-left px-3 py-2.5 cursor-pointer"
                   onClick={() => {
                     setEmail(d.email);
                     setPassword(d.pw);

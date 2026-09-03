@@ -1,18 +1,25 @@
-export type Role = string; // open — designations are admin-managed
-
+export type Role = string; // open — designations are user-defined
+export type Tone = "mint" | "amber" | "coral" | "sky" | "slate";
 export type CaseStatus = "On Track" | "At Risk" | "Overdue" | "No Action";
-export type TaskStatus = "Open" | "Done";
 export type CaseState = "Active" | "Closed" | "Lost";
 export type CaseSource = "Direct" | "Agent" | "Broker" | "Website" | "Referral";
 export type PartnerKind = "Agent" | "Broker" | "Referral";
-export type RepeatKind = "none" | "daily" | "weekdays";
+
+export const SOURCES: CaseSource[] = ["Direct", "Agent", "Broker", "Website", "Referral"];
+export const PARTNER_SHARES = [10, 15, 20, 30];
+
+export interface CasePartner {
+  kind: PartnerKind;
+  name: string;
+  sharePct: number; // % of OUR commission paid to the partner
+}
 
 export interface User {
   id: number;
   name: string;
   email: string;
   password: string;
-  role: string; // designation label
+  role: Role;
   team: string;
   active: boolean;
   createdAt: string;
@@ -32,8 +39,8 @@ export interface LoanCase {
   id: number;
   caseNumber: string;
   customer: string;
-  banks: string[];
-  wonBank: string | null;
+  banks: string[]; // submitted to; empty = bank not yet decided
+  wonBank: string | null; // set when booked
   loanAmount: number;
   stage: string;
   caseStatus: CaseState;
@@ -47,23 +54,17 @@ export interface LoanCase {
   updatedAt: string;
 }
 
-export interface CasePartner {
-  kind: PartnerKind;
-  name: string;
-  sharePct: number;
-}
-
 export interface Task {
   id: number;
   caseId: number;
   description: string;
   ownerId: number;
-  createdBy: number; // who opened / assigned the task
+  createdBy: number; // who opened / assigned it
   waitingFor: string;
   whyPending: string;
   createdAt: string;
   dueDate: string;
-  status: TaskStatus;
+  status: "Open" | "Done";
   completedAt: string | null;
   remarks: string;
 }
@@ -100,57 +101,21 @@ export interface Instruction {
 
 export interface BulletinItem {
   id: number;
-  date: string; // ISO date this directive belongs to
+  date: string;
   issuedBy: number;
   task: string;
-  caseId: number | null; // optional — pins the directive to a case
+  caseId: number | null;
   targets: number[];
   status: "Open" | "Done";
   completedAt: string | null;
   completedBy: number | null;
   createdAt: string;
   replies: Reply[];
-  carriedFrom?: string | null;
+  carriedFrom?: string;
   dropped?: boolean;
-  repeat?: RepeatKind; // on templates only
-  templateId?: number | null; // spawned instances point back to their template
-  isTemplate?: boolean; // hidden from the feed; spawns one instance per eligible day
-}
-
-export interface SlaRule {
-  id: number;
-  stage: string;
-  bank: string | null; // null = all banks
-  maxDays: number;
-  active: boolean;
-}
-
-export interface StageItem {
-  id: number;
-  label: string;
-  active: boolean;
-  sortOrder: number;
-}
-
-export interface MasterItem {
-  id: number;
-  label: string;
-  active: boolean;
-}
-
-export interface BankItem {
-  id: number;
-  name: string;
-  ratePct: number; // our commission rate on the loan amount
-  active: boolean;
-}
-
-export interface PartnerItem {
-  id: number;
-  kind: PartnerKind;
-  name: string;
-  defaultSharePct: number; // % of OUR commission owed to them
-  active: boolean;
+  repeat?: "none" | "daily" | "weekdays";
+  templateId?: number | null;
+  isTemplate?: boolean;
 }
 
 export interface AffordabilityCheck {
@@ -177,23 +142,56 @@ export interface AffordabilityCheck {
   eligible: boolean;
   createdBy: number;
   createdAt: string;
-  payload?: string; // JSON snapshot of full mortgage input
+  payload?: string;
 }
 
-/* one email that flowed through the SalesProgressionDL / VIRTUALRM1 group mailboxes */
+export interface MasterItem {
+  id: number;
+  label: string;
+  active: boolean;
+}
+
+export interface StageItem extends MasterItem {
+  sortOrder: number;
+}
+
+export interface BankItem {
+  id: number;
+  name: string;
+  ratePct: number;
+  active: boolean;
+}
+
+export interface PartnerItem {
+  id: number;
+  kind: PartnerKind;
+  name: string;
+  defaultSharePct: number;
+  active: boolean;
+}
+
+export interface SlaRule {
+  id: number;
+  stage: string;
+  bank: string | null;
+  maxDays: number;
+  active: boolean;
+}
+
+/* ---------------- emails ---------------- */
+
 export interface EmailLog {
-  id: string; // Graph message id, or "sim-N" for simulated inbox items
+  id: number;
+  caseId: number | null;
+  direction: "sent" | "received";
   subject: string;
-  fromName: string;
-  fromAddress: string;
-  direction: "out" | "in"; // out = our query to the bank · in = reply from bank / client
-  customer: string | null; // parsed from the subject line
-  bank: string | null; // parsed from the subject line
-  caseId: number | null; // linked pipeline case
-  receivedAt: string; // ISO timestamp
-  snippet: string;
-  linkedAt: string | null;
-  linkedBy: number | null;
+  preview: string; // ~180-char scannable snippet
+  from: string;
+  to: string;
+  at: string;
+  webLink?: string; // "Open in Outlook" — the real message URL
+  graphId?: string; // dedupe key for Graph-synced mail
+  awaitingReply?: boolean;
 }
 
 export interface DB {
@@ -203,14 +201,14 @@ export interface DB {
   cases: LoanCase[];
   tasks: Task[];
   activities: Activity[];
+  instructions: Instruction[];
+  bulletin: BulletinItem[];
   stages: StageItem[];
   whyPending: MasterItem[];
   waitingFor: MasterItem[];
   banks: BankItem[];
   partners: PartnerItem[];
   slaRules: SlaRule[];
-  instructions: Instruction[];
-  bulletin: BulletinItem[];
   affordabilityChecks: AffordabilityCheck[];
   emails: EmailLog[];
 }
@@ -220,12 +218,7 @@ export type Route =
   | { name: "case"; id: number }
   | { name: "tasks" }
   | { name: "bulletin" }
-  | { name: "emails" }
   | { name: "calculator" }
+  | { name: "emails" }
   | { name: "reports" }
   | { name: "admin" };
-
-export type Tone = "mint" | "amber" | "coral" | "sky" | "slate";
-
-export const SOURCES: CaseSource[] = ["Direct", "Agent", "Broker", "Website", "Referral"];
-export const PARTNER_SHARES = [10, 15, 20, 30];

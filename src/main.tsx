@@ -3,8 +3,6 @@ import ReactDOM from "react-dom/client";
 import "./index.css";
 import App from "./App.tsx";
 
-/* If anything blows up at boot (e.g. stale local data from an older build),
-   fail loud with a one-click recovery instead of a silent white screen. */
 class ErrorBoundary extends React.Component<{ children: React.ReactNode }, { error: Error | null }> {
   state = { error: null as Error | null };
   static getDerivedStateFromError(error: Error) {
@@ -24,10 +22,8 @@ class ErrorBoundary extends React.Component<{ children: React.ReactNode }, { err
             <button
               onClick={() => {
                 try {
-                  localStorage.removeItem("meridian.casetracker.db.v10");
-                  localStorage.removeItem("meridian.casetracker.session.v10");
-                  localStorage.removeItem("meridian.casetracker.db.v6");
-                  localStorage.removeItem("meridian.casetracker.session.v6");
+                  localStorage.removeItem("hfmc.casetracker.db.v10");
+                  localStorage.removeItem("hfmc.casetracker.session.v10");
                 } catch {
                   /* ignore */
                 }
@@ -54,11 +50,8 @@ ReactDOM.createRoot(document.getElementById("root")!).render(
   </ErrorBoundary>
 );
 
-/* PWA — register the service worker in production builds */
 if ("serviceWorker" in navigator && import.meta.env.PROD) {
   window.addEventListener("load", () => {
-    navigator.serviceWorker.register("/sw.js").catch(() => {
-      /* offline support is progressive enhancement — the app works without it */
-    });
+    navigator.serviceWorker.register("/sw.js").catch(() => undefined);
   });
 }

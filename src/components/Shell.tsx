@@ -6,10 +6,8 @@ import { bulletinVisible, computeEscalations, useStore } from "../lib/store";
 import { fmtMoney, inDaysISO, todayISO } from "../lib/format";
 import { Avatar, Chip, Modal, ThemeToggle } from "./ui";
 import {
-  IBank, IBriefcase, ICalc, IChart, IChevronL, IChevronR, IDownload, IFlag, IGrid, ILogout, IPlus, IShield, ITasks, LogoMark,
+  IBank, IBriefcase, ICalc, IChart, IFlag, IGrid, ILogout, IMail, IMenu, IPlus, IShield, ITasks, IX, LogoMark,
 } from "./icons";
-
-type BIPEvent = Event & { prompt: () => Promise<void>; userChoice: Promise<{ outcome: string }> };
 
 function Clock() {
   const [now, setNow] = useState(new Date());
@@ -23,14 +21,6 @@ function Clock() {
       {" · "}
       {now.toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit", second: "2-digit", hour12: false })}
     </span>
-  );
-}
-
-function MenuIcon({ size = 18 }: { size?: number }) {
-  return (
-    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" aria-hidden="true">
-      <path d="M4 7h16M4 12h16M4 17h10" />
-    </svg>
   );
 }
 
@@ -96,7 +86,7 @@ function NewCaseModal({ open, onClose }: { open: boolean; onClose: () => void })
   };
 
   return (
-    <Modal onClose={onClose} title="Open a new case" width={580}>
+    <Modal onClose={onClose} title="Open a new case" width={600}>
       <div className="space-y-3.5">
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
           <div>
@@ -112,7 +102,7 @@ function NewCaseModal({ open, onClose }: { open: boolean; onClose: () => void })
             <input className="input mono" value={whatsapp} onChange={(e) => setWhatsapp(e.target.value)} placeholder="+971 50 123 4567" />
           </div>
           <div>
-            <label className="label">WhatsApp group link <span className="normal-case tracking-normal" style={{ color: "var(--ink-faint)" }}>— optional, paste the invite</span></label>
+            <label className="label">WhatsApp group link <span className="normal-case tracking-normal" style={{ color: "var(--ink-faint)" }}>— optional</span></label>
             <input className="input mono" value={waGroup} onChange={(e) => setWaGroup(e.target.value)} placeholder="https://chat.whatsapp.com/…" />
           </div>
         </div>
@@ -130,7 +120,7 @@ function NewCaseModal({ open, onClose }: { open: boolean; onClose: () => void })
                   className="chip transition-all"
                   style={
                     on
-                      ? { background: "rgba(242,176,76,0.14)", borderColor: "var(--amber)", color: "var(--amber)" }
+                      ? { background: "var(--amber-tint)", borderColor: "var(--amber)", color: "var(--amber)" }
                       : { background: "var(--bg2)", borderColor: "var(--line)", color: "var(--ink-faint)" }
                   }
                 >
@@ -139,9 +129,6 @@ function NewCaseModal({ open, onClose }: { open: boolean; onClose: () => void })
               );
             })}
           </div>
-          <p className="text-[11px] text-[var(--ink-faint)] mt-1.5 mb-0">
-            Multiple banks can be in play — the winning bank is recorded when the case books. Percentages shown are our commission rate.
-          </p>
         </div>
 
         <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
@@ -179,7 +166,7 @@ function NewCaseModal({ open, onClose }: { open: boolean; onClose: () => void })
         </div>
 
         {needsPartner && (
-          <div className="rounded-lg p-3 anim-fade-up" style={{ background: "rgba(242,176,76,0.05)", border: "1px solid rgba(242,176,76,0.2)" }}>
+          <div className="rounded-lg p-3 anim-fade-up" style={{ background: "var(--amber-tint)", border: "1px solid var(--amber-line)" }}>
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
               <div>
                 <label className="label">{source} name</label>
@@ -205,7 +192,7 @@ function NewCaseModal({ open, onClose }: { open: boolean; onClose: () => void })
                       onClick={() => setShare(s)}
                       style={
                         share === s
-                          ? { background: "rgba(242,176,76,0.14)", borderColor: "var(--amber)", color: "var(--amber)" }
+                          ? { background: "var(--amber-tint)", borderColor: "var(--amber)", color: "var(--amber)" }
                           : { background: "var(--bg2)", borderColor: "var(--line)", color: "var(--ink-faint)" }
                       }
                     >
@@ -218,7 +205,7 @@ function NewCaseModal({ open, onClose }: { open: boolean; onClose: () => void })
                     onClick={() => setShare(0)}
                     style={
                       share === 0
-                        ? { background: "rgba(242,176,76,0.14)", borderColor: "var(--amber)", color: "var(--amber)" }
+                        ? { background: "var(--amber-tint)", borderColor: "var(--amber)", color: "var(--amber)" }
                         : { background: "var(--bg2)", borderColor: "var(--line)", color: "var(--ink-faint)" }
                     }
                   >
@@ -266,66 +253,96 @@ function NewCaseModal({ open, onClose }: { open: boolean; onClose: () => void })
   );
 }
 
-export default function Shell({ children }: { children: ReactNode }) {
-  const { db, session, route, nav, logout, visibleCases, canInstruct, toast } = useStore();
-  const [showNew, setShowNew] = useState(false);
-  const [mobileOpen, setMobileOpen] = useState(false);
-  const [collapsed, setCollapsed] = useState(() => {
-    try {
-      return localStorage.getItem("hfmc.sidebar.collapsed") === "1";
-    } catch {
-      return false;
-    }
-  });
-  const [installEvt, setInstallEvt] = useState<BIPEvent | null>(null);
-
-  useEffect(() => {
-    const onBip = (e: Event) => {
-      e.preventDefault();
-      setInstallEvt(e as BIPEvent);
-    };
-    window.addEventListener("beforeinstallprompt", onBip);
-    return () => window.removeEventListener("beforeinstallprompt", onBip);
-  }, []);
-
-  const doInstall = async () => {
-    if (!installEvt) return;
-    await installEvt.prompt();
-    const choice = await installEvt.userChoice;
-    if (choice.outcome === "accepted") {
-      setInstallEvt(null);
-      toast("success", "HFMC installed — find it on your home screen.");
-    }
-  };
-
-  const toggleCollapse = () => {
-    setCollapsed((c) => {
-      try {
-        localStorage.setItem("hfmc.sidebar.collapsed", c ? "0" : "1");
-      } catch {
-        /* ignore */
-      }
-      return !c;
-    });
-  };
-
-  const breaches = computeEscalations(db, visibleCases()).length;
-  const openInstr = db.instructions.filter((i) => i.status === "Open").length;
-  const pipeline = visibleCases().filter((c) => c.caseStatus === "Active").reduce((s, c) => s + c.loanAmount, 0);
-  const isAdmin = session?.role === "Head of Company" || session?.role === "Mortgage Head";
-
+function NavList({ route, nav, onNavigate, collapsed }: { route: Route; nav: (r: Route) => void; onNavigate?: () => void; collapsed?: boolean }) {
+  const { db, session, canAdmin } = useStore();
   const myOpenDirectives = session
     ? db.bulletin.filter((b) => !b.isTemplate && !b.dropped && b.date === todayISO() && b.status === "Open" && bulletinVisible(b, session, db) && b.targets.includes(session.id)).length
     : 0;
 
   const navItems: { label: string; route: Route; icon: (p: { size?: number; className?: string }) => ReactNode; badge?: number }[] = [
-    { label: "Dashboard", route: { name: "dashboard" as const }, icon: IGrid },
-    { label: "Morning Bulletin", route: { name: "bulletin" as const }, icon: IFlag, badge: myOpenDirectives },
-    { label: "Calculator", route: { name: "calculator" as const }, icon: ICalc },
-    { label: "Task Queue", route: { name: "tasks" as const }, icon: ITasks },
-    { label: "Reports", route: { name: "reports" as const }, icon: IChart },
-    ...(isAdmin ? [{ label: "Admin", route: { name: "admin" as const }, icon: IShield }] : []),
+    { label: "Dashboard", route: { name: "dashboard" }, icon: IGrid },
+    { label: "Morning Bulletin", route: { name: "bulletin" }, icon: IFlag, badge: myOpenDirectives },
+    { label: "Calculator", route: { name: "calculator" }, icon: ICalc },
+    { label: "Emails", route: { name: "emails" }, icon: IMail },
+    { label: "Task Queue", route: { name: "tasks" }, icon: ITasks },
+    { label: "Reports", route: { name: "reports" }, icon: IChart },
+    ...(canAdmin() ? [{ label: "Admin", route: { name: "admin" as const }, icon: IShield }] : []),
   ];
+
+  return (
+    <nav className={`px-3 mt-2 space-y-1 ${collapsed ? "flex flex-col items-center" : ""}`}>
+      {navItems.map((n) => {
+        const active = route.name === n.route.name || (route.name === "case" && n.route.name === "dashboard");
+        const Icon = n.icon;
+        if (collapsed) {
+          return (
+            <button
+              key={n.label}
+              className={`relative w-11 h-11 rounded-lg flex items-center justify-center transition-all cursor-pointer ${active ? "active" : ""}`}
+              style={active ? { background: "var(--amber-tint)", color: "var(--amber)" } : { color: "var(--ink-dim)" }}
+              title={n.label}
+              onClick={() => { nav(n.route); onNavigate?.(); }}
+            >
+              <Icon size={18} />
+              {!!n.badge && n.badge > 0 && (
+                <span className="absolute top-1 right-1 w-2 h-2 rounded-full" style={{ background: "var(--amber)" }} />
+              )}
+            </button>
+          );
+        }
+        return (
+          <button
+            key={n.label}
+            className={`nav-item ${active ? "active" : ""}`}
+            onClick={() => { nav(n.route); onNavigate?.(); }}
+          >
+            <Icon size={17} />
+            <span className="flex-1">{n.label}</span>
+            {!!n.badge && n.badge > 0 && (
+              <span className="mono text-[10px] px-1.5 py-0.5 rounded-full" style={{ background: "var(--amber-tint)", color: "var(--amber)", border: "1px solid var(--amber-line)" }}>
+                {n.badge}
+              </span>
+            )}
+          </button>
+        );
+      })}
+    </nav>
+  );
+}
+
+export default function Shell({ children }: { children: ReactNode }) {
+  const { db, session, route, nav, logout, visibleCases } = useStore();
+  const [showNew, setShowNew] = useState(false);
+  const [drawer, setDrawer] = useState(false);
+  const [collapsed, setCollapsed] = useState(() => {
+    try {
+      return localStorage.getItem("hfmc.sidebar") === "collapsed";
+    } catch {
+      return false;
+    }
+  });
+
+  const breaches = computeEscalations(db, visibleCases()).length;
+  const pipeline = visibleCases().filter((c) => c.caseStatus === "Active").reduce((s, c) => s + c.loanAmount, 0);
+
+  const toggleCollapse = () => {
+    setCollapsed((c) => {
+      const next = !c;
+      try {
+        localStorage.setItem("hfmc.sidebar", next ? "collapsed" : "expanded");
+      } catch {
+        /* ignore */
+      }
+      return next;
+    });
+  };
+
+  useEffect(() => {
+    document.body.style.overflow = drawer ? "hidden" : "";
+    return () => {
+      document.body.style.overflow = "";
+    };
+  }, [drawer]);
 
   const title =
     route.name === "dashboard" ? "Dashboard" :
@@ -333,113 +350,110 @@ export default function Shell({ children }: { children: ReactNode }) {
     route.name === "tasks" ? "Task Queue" :
     route.name === "bulletin" ? "Morning Bulletin" :
     route.name === "calculator" ? "Calculator" :
+    route.name === "emails" ? "Emails" :
     route.name === "reports" ? "Reports" : "Admin";
 
-  const go = (r: Route) => {
-    nav(r);
-    setMobileOpen(false);
-  };
-
   return (
-    <div className="flex h-[100dvh] overflow-hidden">
-      <div className="app-bg" />
+    <div className="flex h-screen overflow-hidden">
+      <div className="app-bg">
+        <div className="orb orb-a" />
+        <div className="orb orb-b" />
+      </div>
 
-      {/* mobile scrim */}
-      {mobileOpen && (
-        <div
-          className="fixed inset-0 z-40 lg:hidden anim-fade-in"
-          style={{ background: "rgba(4, 10, 13, 0.6)", backdropFilter: "blur(2px)" }}
-          onClick={() => setMobileOpen(false)}
-        />
-      )}
-
-      {/* sidebar — off-canvas drawer on mobile, collapsible rail on desktop */}
+      {/* desktop sidebar (collapsible) — hidden below xl */}
       <aside
-        className={`side-dark shrink-0 border-r flex flex-col z-50
-          fixed inset-y-0 left-0 w-[268px] transition-transform duration-300 ease-[cubic-bezier(0.22,1,0.36,1)] lg:static lg:translate-x-0 lg:transition-[width]
-          ${mobileOpen ? "translate-x-0 shadow-[24px_0_60px_-20px_rgba(0,0,0,0.7)]" : "-translate-x-full"}
-          ${collapsed ? "lg:w-[70px]" : "lg:w-[232px]"}`}
-        style={{ borderColor: "#18313b", background: "rgba(11,23,29,0.94)", backdropFilter: "blur(8px)" }}
+        className={`side-dark side-rail relative shrink-0 border-r hidden xl:flex flex-col safe-t ${collapsed ? "w-[80px]" : "w-[232px]"}`}
+        style={{ borderColor: "#18313b", background: "rgba(11,23,29,0.88)", backdropFilter: "blur(6px)" }}
       >
-        <div className={`flex items-center gap-2.5 px-4 pt-safe py-4 ${collapsed ? "lg:px-0 lg:justify-center" : ""}`}>
+        <button
+          className="absolute -right-3 top-[70px] z-20 hidden xl:flex items-center justify-center w-6 h-6 rounded-full border cursor-pointer transition-all hover:scale-110"
+          style={{ background: "var(--raised)", borderColor: "var(--line)", color: "var(--ink-dim)" }}
+          onClick={toggleCollapse}
+          title={collapsed ? "Expand sidebar" : "Collapse sidebar"}
+          aria-label={collapsed ? "Expand sidebar" : "Collapse sidebar"}
+        >
+          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" style={{ transform: collapsed ? "rotate(180deg)" : undefined, transition: "transform 0.25s" }}>
+            <path d="m14.5 5.5-6.5 6.5 6.5 6.5" />
+          </svg>
+        </button>
+
+        <div className={`flex items-center gap-2.5 px-4 py-4 ${collapsed ? "justify-center px-0" : ""}`}>
           <LogoMark size={30} />
-          <div className={collapsed ? "lg:hidden" : ""}>
+          {!collapsed && (
+            <div>
+              <div className="font-disp font-bold text-[15px] tracking-[0.04em] leading-none">HFMC</div>
+              <div className="text-[9.5px] uppercase tracking-[0.18em] text-[var(--ink-faint)] mt-1">Mortgage · UAE</div>
+            </div>
+          )}
+        </div>
+
+        <NavList route={route} nav={nav} collapsed={collapsed} />
+
+        <div className="mt-auto p-3">
+          {!collapsed && (
+            <div className="card p-3 mb-2">
+              <div className="text-[10.5px] uppercase tracking-[0.12em] text-[var(--ink-faint)] font-disp font-semibold mb-1.5">SLA breaches</div>
+              <div className="flex items-center gap-2">
+                {breaches > 0 ? <span className="dot-overdue" /> : <span className="dot-live" />}
+                <span className="font-disp font-bold text-[20px]" style={{ color: breaches > 0 ? "var(--coral)" : "var(--mint)" }}>{breaches}</span>
+                <span className="text-[11px] text-[var(--ink-faint)]">stage{breaches === 1 ? "" : "s"} past SLA</span>
+              </div>
+              <div className="mt-2 pt-2 text-[11px] text-[var(--ink-faint)]" style={{ borderTop: "1px dashed var(--line)" }}>
+                Active pipeline <span className="mono text-[var(--ink-dim)]">{fmtMoney(pipeline)}</span>
+              </div>
+            </div>
+          )}
+          {collapsed && (
+            <div className="flex flex-col items-center gap-1 mb-2" title={`${breaches} stage${breaches === 1 ? "" : "s"} past SLA · pipeline ${fmtMoney(pipeline)}`}>
+              {breaches > 0 ? <span className="dot-overdue" /> : <span className="dot-live" />}
+              <span className="font-disp font-bold text-[15px]" style={{ color: breaches > 0 ? "var(--coral)" : "var(--mint)" }}>{breaches}</span>
+            </div>
+          )}
+
+          <div className={`flex items-center gap-2.5 px-2 py-2 rounded-lg ${collapsed ? "justify-center px-0" : ""}`} style={{ background: "var(--tint)" }}>
+            <Avatar name={session?.name ?? "?"} size={32} />
+            {!collapsed && (
+              <>
+                <div className="min-w-0 flex-1">
+                  <div className="text-[12.5px] font-medium truncate">{session?.name}</div>
+                  <div className="text-[10.5px] text-[var(--ink-faint)] truncate">{session?.role}</div>
+                </div>
+                <button className="text-[var(--ink-faint)] hover:text-[var(--coral)] transition-colors cursor-pointer" onClick={logout} title="Sign out" aria-label="Sign out">
+                  <ILogout size={16} />
+                </button>
+              </>
+            )}
+          </div>
+        </div>
+      </aside>
+
+      {/* mobile drawer — below xl */}
+      {drawer && (
+        <div className="fixed inset-0 z-40 xl:hidden anim-fade-in" style={{ background: "rgba(4,12,15,0.6)", backdropFilter: "blur(2px)" }} onClick={() => setDrawer(false)} />
+      )}
+      <aside
+        className={`side-dark fixed inset-y-0 left-0 z-50 w-[290px] flex flex-col border-r transition-transform duration-300 ease-out xl:hidden safe-t ${drawer ? "translate-x-0" : "-translate-x-full"}`}
+        style={{ borderColor: "#18313b", background: "#0b171d" }}
+      >
+        <button className="absolute top-4 right-3 text-[var(--ink-faint)] hover:text-[var(--ink)] transition-colors cursor-pointer" onClick={() => setDrawer(false)} aria-label="Close menu">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round"><path d="M18 6 6 18M6 6l12 12" /></svg>
+        </button>
+        <div className="flex items-center gap-2.5 px-4 py-4">
+          <LogoMark size={30} />
+          <div>
             <div className="font-disp font-bold text-[15px] tracking-[0.04em] leading-none">HFMC</div>
             <div className="text-[9.5px] uppercase tracking-[0.18em] text-[var(--ink-faint)] mt-1">Mortgage · UAE</div>
           </div>
-          {/* collapse toggle — desktop only */}
-          <button
-            className="hidden lg:inline-flex ml-auto btn btn-ghost btn-sm !px-1.5 !py-1.5"
-            onClick={toggleCollapse}
-            title={collapsed ? "Expand sidebar" : "Collapse sidebar"}
-          >
-            {collapsed ? <IChevronR size={14} /> : <IChevronL size={14} />}
-          </button>
-          {/* close drawer — mobile only */}
-          <button className="lg:hidden ml-auto text-[var(--ink-faint)] hover:text-[var(--ink)] transition-colors p-1" onClick={() => setMobileOpen(false)} aria-label="Close menu">
-            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round"><path d="M18 6 6 18M6 6l12 12" /></svg>
-          </button>
         </div>
-
-        <nav className={`px-3 mt-2 space-y-1 flex-1 overflow-y-auto scroll-slim ${collapsed ? "lg:px-2" : ""}`}>
-          {navItems.map((n) => {
-            const active = route.name === n.route.name || (route.name === "case" && n.route.name === "dashboard");
-            return (
-              <button
-                key={n.label}
-                title={n.label}
-                className={`nav-item w-full text-left ${active ? "active" : ""} ${collapsed ? "lg:rail-btn" : ""}`}
-                onClick={() => go(n.route)}
-              >
-                <n.icon size={17} />
-                <span className={collapsed ? "lg:hidden" : ""}>{n.label}</span>
-                {!!n.badge && n.badge > 0 && (
-                  <span
-                    className={`ml-auto mono text-[10px] px-1.5 py-0.5 rounded-full ${collapsed ? "lg:hidden" : ""}`}
-                    style={{ background: "rgba(242,176,76,0.18)", color: "var(--amber)", border: "1px solid rgba(242,176,76,0.4)" }}
-                  >
-                    {n.badge}
-                  </span>
-                )}
-                {n.label === "Task Queue" && openInstr > 0 && canInstruct() && (
-                  <span className={`ml-auto mono text-[10px] px-1.5 py-0.5 rounded ${collapsed ? "lg:hidden" : ""}`} style={{ background: "rgba(87,194,234,0.15)", color: "var(--sky)" }}>
-                    {openInstr}
-                  </span>
-                )}
-              </button>
-            );
-          })}
-        </nav>
-
-        <div className={`p-3 pt-safe ${collapsed ? "lg:p-2" : ""}`}>
-          {/* live pipeline mini-panel */}
-          <div className={`card p-3 mb-2 ${collapsed ? "lg:p-2 lg:text-center" : ""}`}>
-            <div className={`text-[10.5px] uppercase tracking-[0.12em] text-[var(--ink-faint)] font-disp font-semibold mb-1.5 ${collapsed ? "lg:hidden" : ""}`}>SLA breaches</div>
-            <div className={`flex items-center gap-2 ${collapsed ? "lg:justify-center" : ""}`}>
-              {breaches > 0 ? <span className="dot-overdue" /> : <span className="dot-live" />}
-              <span className="font-disp font-bold text-[20px]" style={{ color: breaches > 0 ? "var(--coral)" : "var(--mint)" }}>{breaches}</span>
-              <span className={`text-[11px] text-[var(--ink-faint)] ${collapsed ? "lg:hidden" : ""}`}>stage{breaches === 1 ? "" : "s"} past SLA</span>
-            </div>
-            <div className={`mt-2 pt-2 text-[11px] text-[var(--ink-faint)] ${collapsed ? "lg:hidden" : ""}`} style={{ borderTop: "1px dashed var(--line)" }}>
-              Active pipeline <span className="mono text-[var(--ink-dim)]">{fmtMoney(pipeline)}</span>
-            </div>
-          </div>
-
-          {/* install affordance — appears when the browser offers it */}
-          {installEvt && (
-            <button className={`btn btn-ghost btn-sm w-full justify-center mb-2 ${collapsed ? "lg:!px-1" : ""}`} onClick={doInstall} title="Install HFMC on this device">
-              <IDownload size={13} />
-              <span className={collapsed ? "lg:hidden" : ""}>Install app</span>
-            </button>
-          )}
-
-          <div className={`flex items-center gap-2.5 px-2 py-2 rounded-lg ${collapsed ? "lg:px-1 lg:justify-center" : ""}`} style={{ background: "var(--tint)" }}>
+        <NavList route={route} nav={nav} onNavigate={() => setDrawer(false)} />
+        <div className="mt-auto p-3">
+          <div className="flex items-center gap-2.5 px-2 py-2 rounded-lg" style={{ background: "var(--tint)" }}>
             <Avatar name={session?.name ?? "?"} size={32} />
-            <div className={`min-w-0 flex-1 ${collapsed ? "lg:hidden" : ""}`}>
+            <div className="min-w-0 flex-1">
               <div className="text-[12.5px] font-medium truncate">{session?.name}</div>
               <div className="text-[10.5px] text-[var(--ink-faint)] truncate">{session?.role}</div>
             </div>
-            <button className={`text-[var(--ink-faint)] hover:text-[var(--coral)] transition-colors ${collapsed ? "lg:hidden" : ""}`} onClick={logout} title="Sign out">
+            <button className="text-[var(--ink-faint)] hover:text-[var(--coral)] transition-colors cursor-pointer" onClick={logout} title="Sign out" aria-label="Sign out">
               <ILogout size={16} />
             </button>
           </div>
@@ -448,14 +462,11 @@ export default function Shell({ children }: { children: ReactNode }) {
 
       {/* main */}
       <div className="flex-1 flex flex-col min-w-0">
-        <header
-          className="pt-safe h-[54px] shrink-0 border-b flex items-center gap-3 px-3.5 sm:px-5"
-          style={{ borderColor: "var(--line-soft)", background: "color-mix(in srgb, var(--bg) 78%, transparent)", backdropFilter: "blur(6px)" }}
-        >
-          <button className="lg:hidden btn btn-ghost btn-sm !px-2" onClick={() => setMobileOpen(true)} aria-label="Open menu">
-            <MenuIcon />
+        <header className="h-[54px] shrink-0 border-b flex items-center gap-3 px-4 sm:px-5 safe-t" style={{ borderColor: "var(--line-soft)", background: "color-mix(in srgb, var(--bg) 78%, transparent)", backdropFilter: "blur(6px)" }}>
+          <button className="btn btn-ghost btn-sm !px-2 xl:hidden" onClick={() => setDrawer(true)} aria-label="Open menu">
+            <IMenu size={18} />
           </button>
-          <h1 className="font-disp font-semibold text-[15px] sm:text-[16px] m-0 truncate">{title}</h1>
+          <h1 className="font-disp font-semibold text-[16px] m-0 truncate">{title}</h1>
           {route.name === "case" && (
             <span className="text-[12px] text-[var(--ink-faint)] hidden sm:inline">the full story of one file</span>
           )}
@@ -463,13 +474,13 @@ export default function Shell({ children }: { children: ReactNode }) {
             <Clock />
             <ThemeToggle compact />
             <button className="btn btn-primary btn-sm" onClick={() => setShowNew(true)}>
-              <IPlus size={14} /> <span className="hidden min-[420px]:inline">New case</span>
+              <IPlus size={14} /> New case
             </button>
           </div>
         </header>
 
-        <main className="flex-1 overflow-y-auto overscroll-contain">
-          <div key={JSON.stringify(route)} className="max-w-[1240px] mx-auto px-3.5 sm:px-5 py-4 sm:py-5 anim-fade-in pb-8 xl:pb-5">
+        <main className="flex-1 overflow-y-auto">
+          <div key={JSON.stringify(route)} className="max-w-[1240px] mx-auto px-4 sm:px-5 py-5 anim-fade-in safe-b">
             {children}
           </div>
         </main>

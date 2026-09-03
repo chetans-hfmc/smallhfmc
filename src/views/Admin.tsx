@@ -42,7 +42,7 @@ export default function Admin() {
             className="chip transition-all"
             style={
               tab === t.key
-                ? { background: "rgba(242,176,76,0.14)", borderColor: "var(--amber)", color: "var(--amber)" }
+                ? { background: "var(--amber-tint)", borderColor: "var(--amber)", color: "var(--amber)" }
                 : { background: "var(--bg2)", borderColor: "var(--line)", color: "var(--ink-faint)" }
             }
             onClick={() => setTab(t.key)}
@@ -63,8 +63,6 @@ export default function Admin() {
     </div>
   );
 }
-
-/* ---------------- users ---------------- */
 
 function UsersTab() {
   const { db, session, saveUser, deleteUser, toast } = useStore();
@@ -181,8 +179,6 @@ function UsersTab() {
   );
 }
 
-/* ---------------- banks & rates ---------------- */
-
 function BanksTab() {
   const { db, addBank, updateBankRate, toggleBank, deleteBank, toast } = useStore();
   const [name, setName] = useState("");
@@ -195,7 +191,7 @@ function BanksTab() {
         <p className="text-[11.5px] text-[var(--ink-faint)] mt-0.5 mb-0">Our commission as % of loan amount. Every change re-computes earnings reports instantly.</p>
       </div>
 
-      <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-2.5 p-4">
+      <div className="grid sm:grid-cols-2 xl:grid-cols-3 gap-2.5 p-4">
         {[...db.banks].sort((a, b) => b.ratePct - a.ratePct).map((b) => (
           <div key={b.id} className="rounded-lg p-3 flex items-center gap-2.5" style={{ background: "var(--tint)", border: "1px solid var(--line-soft)", opacity: b.active ? 1 : 0.5 }}>
             <div className="min-w-0 flex-1">
@@ -246,8 +242,6 @@ function BanksTab() {
   );
 }
 
-/* ---------------- partners ---------------- */
-
 function PartnersTab() {
   const { db, addPartner, updatePartnerShare, togglePartner, deletePartner, toast } = useStore();
   const [kind, setKind] = useState<PartnerKind>("Agent");
@@ -266,7 +260,7 @@ function PartnersTab() {
         </div>
         <div className="ml-auto flex gap-1.5">
           {(["All", "Agent", "Broker", "Referral"] as const).map((k) => (
-            <button key={k} className="chip transition-all" onClick={() => setFilter(k)} style={filter === k ? { background: "rgba(242,176,76,0.14)", borderColor: "var(--amber)", color: "var(--amber)" } : { background: "var(--bg2)", borderColor: "var(--line)", color: "var(--ink-faint)" }}>
+            <button key={k} className="chip transition-all" onClick={() => setFilter(k)} style={filter === k ? { background: "var(--amber-tint)", borderColor: "var(--amber)", color: "var(--amber)" } : { background: "var(--bg2)", borderColor: "var(--line)", color: "var(--ink-faint)" }}>
               {k}
             </button>
           ))}
@@ -341,8 +335,6 @@ function PartnersTab() {
   );
 }
 
-/* ---------------- generic master list ---------------- */
-
 function MasterTab({ kind }: { kind: "stages" | "whyPending" | "waitingFor" }) {
   const { db, addMaster, toggleMaster, deleteMaster, moveStage, toast } = useStore();
   const [label, setLabel] = useState("");
@@ -404,8 +396,6 @@ function MasterTab({ kind }: { kind: "stages" | "whyPending" | "waitingFor" }) {
   );
 }
 
-/* ---------------- SLA rules ---------------- */
-
 function SlaTab() {
   const { db, saveSla, toggleSla, deleteSla, toast } = useStore();
   const stages = [...db.stages].filter((s) => s.label !== "Closure" && s.label !== "Closed").sort((a, b) => a.sortOrder - b.sortOrder);
@@ -421,7 +411,7 @@ function SlaTab() {
       </div>
       <div className="divide-y" style={{ borderColor: "var(--line-soft)" }}>
         {[...db.slaRules].sort((a, b) => a.stage.localeCompare(b.stage)).map((r) => (
-          <div key={r.id} className="px-4 py-2.5 flex items-center gap-3" style={{ borderColor: "var(--line-soft)", opacity: r.active ? 1 : 0.5 }}>
+          <div key={r.id} className="px-4 py-2.5 flex flex-wrap items-center gap-3" style={{ borderColor: "var(--line-soft)", opacity: r.active ? 1 : 0.5 }}>
             <Chip tone="slate">{r.stage}</Chip>
             {r.bank ? <Chip tone="sky">{r.bank}</Chip> : <span className="text-[11.5px] text-[var(--ink-faint)]">all banks</span>}
             <span className="ml-auto text-[12.5px] text-[var(--ink-dim)]">max</span>
@@ -474,8 +464,6 @@ function SlaTab() {
   );
 }
 
-/* ---------------- designations ---------------- */
-
 function DesignationsTab() {
   const { db, addDesignation, updateDesignation, deleteDesignation, toast } = useStore();
   const [name, setName] = useState("");
@@ -488,7 +476,7 @@ function DesignationsTab() {
       title={locked ? "Locked for this designation" : undefined}
       style={
         on
-          ? { background: "rgba(67,214,155,0.12)", borderColor: "rgba(67,214,155,0.5)", color: "var(--mint)" }
+          ? { background: "color-mix(in srgb, var(--mint) 12%, transparent)", borderColor: "color-mix(in srgb, var(--mint) 50%, transparent)", color: "var(--mint)" }
           : { background: "var(--bg2)", borderColor: "var(--line)", color: "var(--ink-faint)" }
       }
       onClick={() => !locked && onClick()}
@@ -523,8 +511,8 @@ function DesignationsTab() {
               {d.super && <Chip tone="amber">supreme</Chip>}
               {d.builtIn && <Chip tone="slate">built-in</Chip>}
               <select
-                className="select"
-                style={{ width: 130 }}
+                className="select !w-auto"
+                style={{ minWidth: 120 }}
                 value={d.scope}
                 disabled={d.super}
                 onChange={(e) => updateDesignation(d.id, { scope: e.target.value as Designation["scope"] })}

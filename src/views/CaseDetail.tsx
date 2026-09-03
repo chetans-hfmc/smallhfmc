@@ -7,7 +7,7 @@ import {
 import { Avatar, Chip, DueChip, Modal, StatusChip } from "../components/ui";
 import { BankChips, CaseStateChip, CommissionPanel, ConfirmModal, SourceChip, WaButtons } from "../components/bits";
 import {
-  IArrowR, IBank, ICalc, ICheck, IChevronL, IClock, IFlag, IHistory, IPlus, ITrash, IZap,
+  IArrowR, IBank, ICalc, ICheck, IChevronL, IClock, IFlag, IHistory, IMail, IPlus, ISend, ITrash, IZap,
 } from "../components/icons";
 
 /* a lightweight reply thread shared by directives */
@@ -78,7 +78,7 @@ function DirectivesBanner({ c }: { c: LoanCase }) {
   const canActBull = (b: BulletinItem) => bulletinCanAct(b, me, db);
 
   return (
-    <div className="card anim-fade-up overflow-hidden" style={{ border: "1px solid var(--amber-line)", background: "linear-gradient(180deg, color-mix(in srgb, var(--amber) 8%, var(--surface)), var(--surface))" }}>
+    <div className="card anim-fade-up overflow-hidden" style={{ border: "1px solid var(--amber-line)", background: "linear-gradient(180deg, var(--amber-tint), var(--surface))" }}>
       <div className="flex items-center gap-2.5 px-4 py-2.5" style={{ borderBottom: "1px solid color-mix(in srgb, var(--amber) 20%, transparent)" }}>
         <IFlag size={16} className="text-[var(--amber)]" />
         <span className="font-disp font-semibold text-[13.5px]" style={{ color: "var(--amber)" }}>Directives on this case</span>
@@ -100,7 +100,7 @@ function DirectivesBanner({ c }: { c: LoanCase }) {
           const done = status === "Done";
           return (
             <div key={d.key} className="px-4 py-3" style={{ opacity: done ? 0.65 : 1 }}>
-              <div className="flex items-start gap-3 max-sm:flex-wrap">
+              <div className="flex items-start gap-3">
                 <Avatar name={issuer?.name ?? "?"} size={30} />
                 <div className="min-w-0 flex-1">
                   <div className="flex flex-wrap items-baseline gap-x-2">
@@ -119,7 +119,7 @@ function DirectivesBanner({ c }: { c: LoanCase }) {
                     <p className="text-[11px] mt-0.5 mb-0" style={{ color: "var(--mint)" }}>✓ done {relTime((isInstr ? d.i.completedAt : d.b.completedAt) as string)}</p>
                   )}
                 </div>
-                <div className="flex flex-col gap-1.5 sm:shrink-0 max-sm:flex-row max-sm:flex-wrap max-sm:items-center max-sm:justify-end max-sm:w-full">
+                <div className="flex flex-col gap-1.5 shrink-0">
                   {canAct && (isInstr || !d.b.caseId) && (
                     <button className="btn btn-mint btn-sm" onClick={() => {
                       if (isInstr) { completeInstruction(d.i.id); } else { completeBulletin(d.b.id); }
@@ -169,10 +169,10 @@ function DirectivesBanner({ c }: { c: LoanCase }) {
               <textarea className="textarea" rows={2} autoFocus placeholder="e.g. Call the client today and get the NOC — do not let this slip."
                 value={text} onChange={(e) => setText(e.target.value)} />
               <div className="flex flex-wrap items-center gap-2">
-                <select className="select" style={{ width: 170 }} value={assignee} onChange={(e) => setAssignee(parseInt(e.target.value, 10))}>
+                <select className="select !w-auto" style={{ minWidth: 150 }} value={assignee} onChange={(e) => setAssignee(parseInt(e.target.value, 10))}>
                   {db.users.filter((u) => u.active).map((u) => <option key={u.id} value={u.id}>{u.name}</option>)}
                 </select>
-                <input className="input mono" style={{ width: 150 }} type="date" value={due} onChange={(e) => e.target.value && setDue(e.target.value)} />
+                <input className="input mono !w-auto" style={{ width: 150 }} type="date" value={due} onChange={(e) => e.target.value && setDue(e.target.value)} />
                 <button className="btn btn-primary btn-sm" onClick={() => {
                   if (!text.trim()) return toast("error", "Write the instruction first.");
                   addInstruction(c.id, { instruction: text, assignedTo: assignee, dueDate: due });
@@ -330,6 +330,116 @@ function NextTaskModal({ c, open, onClose }: { c: LoanCase; open: boolean; onClo
   );
 }
 
+/* ---------------- email trail + send query ---------------- */
+
+function SendQueryModal({ c, open, onClose }: { c: LoanCase; open: boolean; onClose: () => void }) {
+  const { session, logEmail, toast } = useStore();
+  const [reason, setReason] = useState("");
+  const [recipient, setRecipient] = useState("");
+  if (!open) return null;
+
+  const send = () => {
+    const subject = `[${c.caseNumber}] ${c.customer}${reason.trim() ? " — " + reason.trim() : ""}`;
+    const body = [
+      `Dear ${c.customer.split(" ")[0]},`,
+      "",
+      `Regarding your home finance application ${c.caseNumber} with HFMC:`,
+      "",
+      reason.trim() ? `${reason.trim()}.` : "We are following up on your file.",
+      "",
+      "Kind regards,",
+      session?.name ?? "HFMC",
+    ].join("\n");
+    const mailto = `mailto:${recipient.trim()}?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`;
+    window.open(mailto, "_blank");
+    logEmail({
+      caseId: c.id,
+      direction: "sent",
+      subject,
+      preview: body.slice(0, 180),
+      from: `${session?.name ?? "HFMC"} <${session?.email ?? ""}>`,
+      to: recipient.trim() || "—",
+      at: new Date().toISOString(),
+      awaitingReply: true,
+    });
+    toast("success", "Email opened in your mail app and logged to the case trail.");
+    setReason("");
+    setRecipient("");
+    onClose();
+  };
+
+  return (
+    <Modal onClose={onClose} title={`Send query · ${c.caseNumber}`} width={480}>
+      <p className="text-[12px] text-[var(--ink-faint)] mt-0 mb-3">
+        Opens your mail app pre-composed with the case number in the subject, then logs the query to this case's email trail. When the reply lands, sync Outlook (or log it manually) to close the loop.
+      </p>
+      <div className="space-y-3">
+        <div>
+          <label className="label">To (email)</label>
+          <input className="input mono" value={recipient} onChange={(e) => setRecipient(e.target.value)} placeholder="client@example.com or bank RM" />
+        </div>
+        <div>
+          <label className="label">Query / reason</label>
+          <textarea className="textarea" rows={3} value={reason} onChange={(e) => setReason(e.target.value)} placeholder="e.g. Outstanding salary certificates" />
+        </div>
+      </div>
+      <div className="flex justify-end gap-2 mt-5">
+        <button className="btn btn-ghost" onClick={onClose}>Cancel</button>
+        <button className="btn btn-primary" onClick={send}><ISend size={14} /> Open email & log</button>
+      </div>
+    </Modal>
+  );
+}
+
+function EmailTrail({ c }: { c: LoanCase }) {
+  const { db } = useStore();
+  const [showSend, setShowSend] = useState(false);
+  const emails = db.emails.filter((e) => e.caseId === c.id).sort((a, b) => b.at.localeCompare(a.at));
+
+  return (
+    <div className="card anim-fade-up">
+      <div className="px-4 py-3 border-b flex items-center gap-2" style={{ borderColor: "var(--line-soft)" }}>
+        <IMail size={15} className="text-[var(--sky)]" />
+        <h3 className="font-disp font-semibold text-[13.5px] m-0">Email trail</h3>
+        <span className="mono text-[10.5px] text-[var(--ink-faint)] ml-auto">{emails.length}</span>
+        <button className="btn btn-ghost btn-sm !py-1" onClick={() => setShowSend(true)}>
+          <ISend size={12} /> Send query
+        </button>
+      </div>
+      <div className="max-h-[300px] overflow-y-auto">
+        {emails.length === 0 ? (
+          <p className="text-[12.5px] text-[var(--ink-faint)] p-4 m-0">No emails logged yet. Use “Send query” to start the paper trail.</p>
+        ) : (
+          <div className="divide-y" style={{ borderColor: "var(--line-soft)" }}>
+            {emails.map((e) => (
+              <div key={e.id} className="px-4 py-3" style={{ borderColor: "var(--line-soft)" }}>
+                <div className="flex items-center gap-2 mb-1">
+                  <Chip tone={e.direction === "sent" ? "sky" : "mint"}>{e.direction === "sent" ? "sent" : "received"}</Chip>
+                  {e.awaitingReply && e.direction === "sent" && <Chip tone="amber">awaiting reply</Chip>}
+                  <span className="mono text-[10px] text-[var(--ink-faint)] ml-auto shrink-0">{relTime(e.at)}</span>
+                </div>
+                <p className="text-[12.5px] font-medium m-0 leading-snug">{e.subject}</p>
+                <p className="text-[11.5px] text-[var(--ink-dim)] m-0 mt-1 leading-snug">{e.preview}</p>
+                <div className="flex items-center gap-2 mt-1.5 text-[11px] text-[var(--ink-faint)]">
+                  <span className="truncate">{e.direction === "sent" ? `to ${e.to}` : `from ${e.from}`}</span>
+                  {e.webLink && (
+                    <a className="mono text-[10.5px] shrink-0 transition-colors hover:opacity-80" style={{ color: "var(--sky)" }} href={e.webLink} target="_blank" rel="noreferrer">
+                      Open in Outlook →
+                    </a>
+                  )}
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+      <SendQueryModal c={c} open={showSend} onClose={() => setShowSend(false)} />
+    </div>
+  );
+}
+
+/* ---------------- main view ---------------- */
+
 export default function CaseDetail({ id }: { id: number }) {
   const { db, nav, canEditCase, updateCase, setCaseState, deleteCase, userById, toast, session } = useStore();
   const c = db.cases.find((x) => x.id === id);
@@ -372,7 +482,7 @@ export default function CaseDetail({ id }: { id: number }) {
 
   return (
     <div className="space-y-4">
-      <button className="flex items-center gap-1 text-[12.5px] text-[var(--ink-dim)] hover:text-[var(--ink)] transition-colors" onClick={() => nav({ name: "dashboard" })}>
+      <button className="flex items-center gap-1 text-[12.5px] text-[var(--ink-dim)] hover:text-[var(--ink)] transition-colors cursor-pointer" onClick={() => nav({ name: "dashboard" })}>
         <IChevronL size={15} /> All cases
       </button>
 
@@ -455,7 +565,7 @@ export default function CaseDetail({ id }: { id: number }) {
               return (
                 <div key={s.id} className="flex items-center">
                   <button
-                    className="flex flex-col items-center gap-1.5 group"
+                    className="flex flex-col items-center gap-1.5 group cursor-pointer"
                     onClick={() => moveStage(s.label)}
                     disabled={!editable}
                     title={editable ? `Move to ${s.label}` : s.label}
@@ -556,7 +666,7 @@ export default function CaseDetail({ id }: { id: number }) {
                     {k.eligible ? <Chip tone="mint">Eligible</Chip> : <Chip tone="coral">Declined</Chip>}
                     <span className="mono font-semibold text-[13.5px]">{k.finalEligibleLoan > 0 ? fmtMoney(k.finalEligibleLoan) : "—"}</span>
                     <span className="text-[12px] text-[var(--ink-dim)]">
-                      income {fmtMoney(k.monthlyIncome + k.otherIncome)} · EMIs {fmtMoney(k.existingEmis)} · {k.age}y {k.employmentType.toLowerCase()} · {k.bank} @{k.interestRate}%
+                      income {fmtMoney(k.monthlyIncome + k.otherIncome)} · EMIs {fmtMoney(k.existingEmis)} · {k.interestRate}%
                     </span>
                     <span className="text-[11px] text-[var(--ink-faint)] ml-auto">
                       by {userById(k.createdBy)?.name ?? "—"} · {relTime(k.createdAt)}
@@ -570,6 +680,7 @@ export default function CaseDetail({ id }: { id: number }) {
 
         {/* right rail */}
         <div className="space-y-4">
+          <EmailTrail c={c} />
           <CommissionPanel c={c} />
 
           {isActive && editable && (
@@ -584,7 +695,7 @@ export default function CaseDetail({ id }: { id: number }) {
                       key={b.id}
                       className="chip transition-all"
                       onClick={() => updateCase(c.id, { banks: on ? c.banks.filter((x) => x !== b.name) : [...c.banks, b.name] })}
-                      style={on ? { background: "rgba(87,194,234,0.12)", borderColor: "var(--sky)", color: "var(--sky)" } : { background: "var(--bg2)", borderColor: "var(--line)", color: "var(--ink-faint)" }}
+                      style={on ? { background: "color-mix(in srgb, var(--sky) 12%, transparent)", borderColor: "var(--sky)", color: "var(--sky)" } : { background: "var(--bg2)", borderColor: "var(--line)", color: "var(--ink-faint)" }}
                     >
                       {b.name}
                     </button>
@@ -600,7 +711,7 @@ export default function CaseDetail({ id }: { id: number }) {
               <IHistory size={15} className="text-[var(--ink-faint)]" />
               <h3 className="font-disp font-semibold text-[13.5px] m-0">Activity trail</h3>
             </div>
-            <div className="p-4 max-h-[420px] overflow-y-auto">
+            <div className="p-4 max-h-[360px] overflow-y-auto">
               {trail.length === 0 ? (
                 <p className="text-[12.5px] text-[var(--ink-faint)] m-0">No activity yet.</p>
               ) : (
@@ -701,5 +812,4 @@ export default function CaseDetail({ id }: { id: number }) {
   );
 }
 
-/* keep task type re-exported for consumers */
 export type { Task };

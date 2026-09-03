@@ -19,7 +19,7 @@ function Kpi({ label, value, format, tone, sub }: { label: string; value: number
   const v = useCountUp(value);
   const color = tone ? `var(--${tone})` : "var(--ink)";
   return (
-    <div className="card card-hover px-4 py-3.5 min-w-[150px]">
+    <div className="card card-hover px-4 py-3.5 min-w-[150px] shrink-0">
       <div className="text-[11px] uppercase tracking-[0.12em] text-[var(--ink-faint)] font-disp font-semibold">{label}</div>
       <div className="font-disp font-bold text-[30px] leading-tight mt-0.5" style={{ color }}>
         {format ? format(v) : v}
@@ -52,7 +52,6 @@ export default function Dashboard() {
   const spark = useMemo(() => activityPerDay(db.activities, 14), [db.activities]);
 
   const openTasks = tasks.filter((t) => t.status === "Open");
-  const activeCases = cases.filter((c) => c.caseStatus === "Active");
 
   const whyRows = db.whyPending
     .map((w) => ({ label: w.label, value: openTasks.filter((t) => t.whyPending === w.label).length, color: TONE_HEX.amber }))
@@ -134,12 +133,12 @@ export default function Dashboard() {
         </div>
         <div className="flex items-center gap-2 text-[12px] text-[var(--ink-faint)]">
           <span className="dot-live" />
-          <span className="mono">activity · last 14 days</span>
+          <span className="mono hidden sm:inline">activity · last 14 days</span>
           <Spark points={spark} width={130} height={34} />
         </div>
       </div>
 
-      <div className="flex gap-3 overflow-x-auto pb-1 stagger">
+      <div className="flex gap-3 overflow-x-auto no-scrollbar scroll-snap-x pb-1 stagger">
         <Kpi label="Cases in flight" value={k.openCases} />
         <Kpi label="Overdue" value={k.overdue} tone="coral" />
         <Kpi label="At risk" value={k.atRisk} tone="amber" />
@@ -156,10 +155,10 @@ export default function Dashboard() {
               {STATE_TABS.map((t) => (
                 <button
                   key={t}
-                  className="px-3 py-1.5 text-[12px] font-disp font-semibold transition-colors"
+                  className="px-3 py-1.5 text-[12px] font-disp font-semibold transition-colors cursor-pointer"
                   style={
                     stateTab === t
-                      ? { background: "rgba(242,176,76,0.15)", color: "var(--amber)" }
+                      ? { background: "var(--amber-tint)", color: "var(--amber)" }
                       : { color: "var(--ink-faint)", background: "transparent" }
                   }
                   onClick={() => setStateTab(t)}
@@ -168,28 +167,28 @@ export default function Dashboard() {
                 </button>
               ))}
             </div>
-            <input className="input" style={{ width: 190 }} placeholder="Search case / customer…" value={search} onChange={(e) => setSearch(e.target.value)} />
-            <select className="select" style={{ width: 150 }} value={stage} onChange={(e) => setStage(e.target.value)}>
+            <input className="input !w-auto flex-1 min-w-[140px]" placeholder="Search case / customer…" value={search} onChange={(e) => setSearch(e.target.value)} />
+            <select className="select !w-auto" value={stage} onChange={(e) => setStage(e.target.value)}>
               <option value="All">All stages</option>
               {[...db.stages].sort((a, b) => a.sortOrder - b.sortOrder).map((s) => (
                 <option key={s.id} value={s.label}>{s.label}</option>
               ))}
             </select>
             {stateTab === "Active" && (
-              <select className="select" style={{ width: 130 }} value={status} onChange={(e) => setStatus(e.target.value)}>
+              <select className="select !w-auto hidden md:block" value={status} onChange={(e) => setStatus(e.target.value)}>
                 <option value="All">All status</option>
                 {["On Track", "At Risk", "Overdue", "No Action"].map((s) => (
                   <option key={s}>{s}</option>
                 ))}
               </select>
             )}
-            <select className="select" style={{ width: 140 }} value={owner} onChange={(e) => setOwner(e.target.value)}>
+            <select className="select !w-auto hidden lg:block" value={owner} onChange={(e) => setOwner(e.target.value)}>
               <option value="All">All owners</option>
               {db.users.filter((u) => u.role !== "Head of Company" && u.role !== "PA to HoC").map((u) => (
                 <option key={u.id} value={u.id}>{u.name.split(" ")[0]}</option>
               ))}
             </select>
-            <select className="select ml-auto" style={{ width: 140 }} value={sort} onChange={(e) => setSort(e.target.value)}>
+            <select className="select !w-auto ml-auto" value={sort} onChange={(e) => setSort(e.target.value)}>
               <option value="urgency">Most urgent</option>
               <option value="newest">Newest</option>
               <option value="oldest">Oldest</option>
@@ -207,7 +206,7 @@ export default function Dashboard() {
                 />
               </div>
             ) : (
-              <table className="tbl min-w-[840px]">
+              <table className="tbl min-w-[760px]">
                 <thead>
                   <tr>
                     <th>Case</th>
@@ -227,10 +226,7 @@ export default function Dashboard() {
                     return (
                       <tr key={c.id} onClick={() => nav({ name: "case", id: c.id })}>
                         <td className="mono text-[12.5px]" style={{ color: "var(--amber)" }}>{c.caseNumber}</td>
-                        <td className="font-medium">
-                          {c.customer}
-                          {c.partner && <span className="block text-[10.5px] text-[var(--ink-faint)]">{c.partner.name} · {c.partner.sharePct}%</span>}
-                        </td>
+                        <td className="font-medium">{c.customer}</td>
                         <td><SourceChip source={c.source} /></td>
                         <td><BankChips c={c} /></td>
                         <td><Chip tone="slate">{c.stage}</Chip></td>
@@ -297,7 +293,7 @@ export default function Dashboard() {
             <div className="space-y-2">
               {ownerRows.length === 0 && <p className="text-[12.5px] text-[var(--ink-faint)] m-0">No open tasks assigned.</p>}
               {ownerRows.map((o) => (
-                <button key={o.id} className="rowlink w-full flex items-center gap-2.5 rounded-lg px-2 py-1.5" onClick={() => { setOwner(String(o.id)); setStateTab("Active"); }}>
+                <button key={o.id} className="rowlink w-full flex items-center gap-2.5 rounded-lg px-2 py-1.5 cursor-pointer" onClick={() => { setOwner(String(o.id)); setStateTab("Active"); }}>
                   <Avatar name={o.name} size={26} />
                   <span className="text-[12.5px] flex-1 text-left truncate">{o.name}</span>
                   {o.od > 0 && <span className="mono text-[11px]" style={{ color: "var(--coral)" }}>{o.od} od</span>}
@@ -313,7 +309,7 @@ export default function Dashboard() {
               {recent.map((a) => {
                 const c = db.cases.find((x) => x.id === a.caseId);
                 return (
-                  <button key={a.id} className="rowlink w-full text-left flex gap-2.5 rounded-lg px-2 py-1.5" onClick={() => c && nav({ name: "case", id: c.id })}>
+                  <button key={a.id} className="rowlink w-full text-left flex gap-2.5 rounded-lg px-2 py-1.5 cursor-pointer" onClick={() => c && nav({ name: "case", id: c.id })}>
                     <Avatar name={userById(a.userId)?.name ?? "?"} size={24} />
                     <span className="min-w-0">
                       <span className="block text-[12px] leading-snug">

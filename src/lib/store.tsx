@@ -2,16 +2,17 @@ import { createContext, useCallback, useContext, useEffect, useRef, useState } f
 import type { ReactNode } from "react";
 import type {
   Activity, AffordabilityCheck, BankItem, BulletinItem, CasePartner, CaseSource, CaseState, DB, Designation, EmailLog, LoanCase, MasterItem,
-  PartnerItem, PartnerKind, Route, SlaRule, StageItem, Task, User,
+  PartnerItem, PartnerKind, Role, Route, SlaRule, StageItem, Task, User,
 } from "./types";
 import { seedDb } from "./data";
-import { computeAffordability } from "./calc";
-import type { CalcInput } from "./calc";
+import { computeMortgage } from "./mortgage";
+import type { MortgageInput } from "./mortgage";
 import { ageDays, daysBetween, primaryBank, toISODate, todayISO } from "./format";
 import { fetchAppState, isSupabaseOn, saveAppState } from "./supabase";
+import { completeAuth, fetchInboxEmails, matchCaseNumber, toEmailLog } from "./graph";
 
-const DB_KEY = "meridian.casetracker.db.v10";
-const SESSION_KEY = "meridian.casetracker.session.v10";
+const DB_KEY = "hfmc.casetracker.db.v10";
+const SESSION_KEY = "hfmc.casetracker.session.v10";
 
 export interface ToastMsg {
   id: number;
@@ -40,7 +41,7 @@ export interface TaskInput {
   dueDate: string;
 }
 
-/* ---------------- role model (designation-driven) ---------------- */
+/* ---------------- role flags ---------------- */
 
 export interface RoleFlags {
   scope: "all" | "team" | "own";
@@ -56,108 +57,6 @@ export function flagsFor(designations: Designation[], role: string): RoleFlags {
   if (role === "Super Admin") return SUPER_FLAGS;
   const d = designations.find((x) => x.name === role);
   return d ? { scope: d.scope, issueTasks: d.issueTasks, admin: d.admin, super: d.super } : DEFAULT_FLAGS;
-}
-
-/* who can see / act on a bulletin directive */
-export function bulletinVisible(b: BulletinItem, me: User, db: DB): boolean {
-  const f = flagsFor(db.designations, me.role);
-  if (f.scope === "all") return true;
-  if (b.issuedBy === me.id || b.targets.includes(me.id)) return true;
-  if (f.scope === "team") {
-    const issuer = db.users.find((u) => u.id === b.issuedBy);
-    if (issuer?.team === me.team) return true;
-    return b.targets.some((t) => db.users.find((u) => u.id === t)?.team === me.team);
-  }
-  return false;
-}
-
-export function bulletinCanAct(b: BulletinItem, me: User, db: DB): boolean {
-  const f = flagsFor(db.designations, me.role);
-  return f.scope === "all" || b.issuedBy === me.id || b.targets.includes(me.id);
-}
-
-/* carry / drop are manager moves: the issuer, or anyone with full scope */
-export function bulletinCanManage(b: BulletinItem, me: User, db: DB): boolean {
-  const f = flagsFor(db.designations, me.role);
-  return f.scope === "all" || b.issuedBy === me.id;
-}
-
-export function bulletinCanDelete(b: BulletinItem, me: User, db: DB): boolean {
-  return bulletinCanManage(b, me, db);
-}
-
-/* ---------------- bulletin lifecycle (spawn routines, resolve stale) ---------------- */
-
-const MS_DAY = 86400000;
-const SPAWN_BACK_LIMIT = 3; // don't drown a returning user: at most 3 past instances per template
-
-function eligibleDays(fromISO: string, repeat: "daily" | "weekdays"): string[] {
-  const out: string[] = [];
-  const today = todayISO();
-  const span = Math.min(daysBetween(fromISO, today), SPAWN_BACK_LIMIT + 1);
-  for (let back = Math.max(0, span); back >= 0; back--) {
-    const d = new Date(Date.now() - back * MS_DAY);
-    const iso = toISODate(d);
-    if (iso < fromISO) continue;
-    if (repeat === "weekdays") {
-      const dow = d.getDay();
-      if (dow === 0 || dow === 6) continue; // UAE weekend: Sat–Sun
-    }
-    out.push(iso);
-  }
-  return out;
-}
-
-export function spawnBulletinInstances(prev: DB): DB {
-  const templates = prev.bulletin.filter((b) => b.isTemplate && b.repeat && b.repeat !== "none");
-  if (templates.length === 0) return prev;
-  let nid = prev.bulletin.reduce((m, b) => Math.max(m, b.id), 0) + 1;
-  const added: BulletinItem[] = [];
-  for (const t of templates) {
-    for (const day of eligibleDays(t.date, t.repeat as "daily" | "weekdays")) {
-      const exists = prev.bulletin.some((b) => b.templateId === t.id && b.date === day) || added.some((b) => b.templateId === t.id && b.date === day);
-      if (exists) continue;
-      added.push({
-        ...t,
-        id: nid++,
-        date: day,
-        templateId: t.id,
-        isTemplate: false,
-        repeat: "none",
-        status: "Open",
-        completedAt: null,
-        completedBy: null,
-        carriedFrom: null,
-        dropped: false,
-        createdAt: nowISO(),
-        replies: [],
-      });
-    }
-  }
-  return added.length ? { ...prev, bulletin: [...prev.bulletin, ...added] } : prev;
-}
-
-export function resolveStaleBulletins(prev: DB): DB {
-  const casesById = new Map(prev.cases.map((c) => [c.id, c]));
-  let rid = prev.bulletin.reduce((m, b) => Math.max(m, b.id, ...b.replies.map((r) => r.id)), 0) + 1;
-  let changed = false;
-  const bulletin = prev.bulletin.map((b) => {
-    if (b.caseId != null && b.status === "Open" && !b.isTemplate) {
-      const c = casesById.get(b.caseId);
-      if (!c || c.caseStatus !== "Active") {
-        changed = true;
-        return {
-          ...b,
-          status: "Done" as const,
-          completedAt: nowISO(),
-          completedBy: null,
-          replies: [...b.replies, { id: rid++, userId: b.issuedBy, text: "Case closed — directive resolved automatically, no action needed.", at: nowISO() }],
-        };
-      }
-    }
-    return b;
-  });
-  return changed ? { ...prev, bulletin } : prev;
 }
 
 interface StoreShape {
@@ -189,12 +88,10 @@ interface StoreShape {
   canInstruct: () => boolean;
   canAdmin: () => boolean;
   saveMortgageCheck: (name: string, whatsapp: string, payload: string, summary: { income: number; emi: number; final: number; rate: number; tenorMonths: number; ltv: number; eligible: boolean }) => number;
-  addDesignation: (name: string) => string | null;
-  updateDesignation: (id: number, patch: Partial<Omit<Designation, "id" | "builtIn" | "super">>) => void;
-  deleteDesignation: (id: number) => string | null;
-  runCheck: (input: CalcInput, customerName: string) => void;
   createCaseFromCheck: (checkId: number, submitToBank?: boolean, checkOverride?: AffordabilityCheck) => LoanCase | null;
   linkCheckToCase: (checkId: number, caseId: number) => void;
+  logEmail: (input: Omit<EmailLog, "id">) => void;
+  syncGraphEmails: () => Promise<number>;
   saveUser: (u: User) => void;
   deleteUser: (id: number) => string | null;
   addMaster: (kind: "stages" | "whyPending" | "waitingFor", label: string) => string | null;
@@ -212,14 +109,14 @@ interface StoreShape {
   saveSla: (rule: Omit<SlaRule, "id"> & { id?: number }) => void;
   toggleSla: (id: number) => void;
   deleteSla: (id: number) => void;
+  addDesignation: (name: string) => string | null;
+  updateDesignation: (id: number, patch: Partial<Omit<Designation, "id" | "builtIn" | "super">>) => void;
+  deleteDesignation: (id: number) => string | null;
   userById: (id: number) => User | undefined;
   visibleCases: () => LoanCase[];
   visibleTasks: () => Task[];
   canEditCase: (c: LoanCase) => boolean;
   canEditTask: (t: Task) => boolean;
-  ingestEmails: (list: EmailLog[]) => { added: number; matched: number };
-  linkEmail: (emailId: string, caseId: number) => void;
-  logEmailSent: (caseId: number, subject: string) => void;
 }
 
 const Ctx = createContext<StoreShape | null>(null);
@@ -230,8 +127,8 @@ function parseHash(): Route {
   if (a === "case" && b && !Number.isNaN(parseInt(b, 10))) return { name: "case", id: parseInt(b, 10) };
   if (a === "tasks") return { name: "tasks" };
   if (a === "bulletin") return { name: "bulletin" };
-  if (a === "emails") return { name: "emails" };
   if (a === "calculator") return { name: "calculator" };
+  if (a === "emails") return { name: "emails" };
   if (a === "reports") return { name: "reports" };
   if (a === "admin") return { name: "admin" };
   return { name: "dashboard" };
@@ -251,27 +148,14 @@ export function routeToHash(r: Route): string {
 const nextId = (arr: { id: number }[]) => arr.reduce((m, x) => Math.max(m, x.id), 0) + 1;
 const nowISO = () => new Date().toISOString();
 
-/* Validate every collection before trusting stored data — a corrupted or
-   half-written payload must never be able to blank the screen. */
-function isValidDb(p: unknown): p is DB {
-  if (!p || typeof p !== "object") return false;
-  const d = p as DB;
-  return (
-    Array.isArray(d.users) &&
-    Array.isArray(d.designations) &&
-    Array.isArray(d.cases) &&
-    Array.isArray(d.tasks) &&
-    Array.isArray(d.activities) &&
-    Array.isArray(d.stages) &&
-    Array.isArray(d.whyPending) &&
-    Array.isArray(d.waitingFor) &&
-    Array.isArray(d.banks) &&
-    Array.isArray(d.partners) &&
-    Array.isArray(d.slaRules) &&
-    Array.isArray(d.instructions) &&
-    Array.isArray(d.bulletin) &&
-    Array.isArray(d.affordabilityChecks) &&
-    Array.isArray(d.emails)
+function isValidDb(d: DB): boolean {
+  return Boolean(
+    d &&
+    Array.isArray(d.users) && Array.isArray(d.designations) && Array.isArray(d.cases) &&
+    Array.isArray(d.tasks) && Array.isArray(d.activities) && Array.isArray(d.instructions) &&
+    Array.isArray(d.bulletin) && Array.isArray(d.stages) && Array.isArray(d.whyPending) &&
+    Array.isArray(d.waitingFor) && Array.isArray(d.banks) && Array.isArray(d.partners) &&
+    Array.isArray(d.slaRules) && Array.isArray(d.affordabilityChecks) && Array.isArray(d.emails)
   );
 }
 
@@ -288,6 +172,100 @@ function loadDb(): DB {
   return seedDb();
 }
 
+/* ---------------- bulletin lifecycle (pure) ---------------- */
+
+const MS_DAY = 86400000;
+const SPAWN_BACK_LIMIT = 3;
+
+function eligibleDays(fromISO: string, repeat: "daily" | "weekdays"): string[] {
+  const out: string[] = [];
+  const today = todayISO();
+  const span = Math.min(Math.max(0, daysBetween(fromISO, today)), SPAWN_BACK_LIMIT + 1);
+  for (let back = span; back >= 0; back--) {
+    const d = new Date(Date.now() - back * MS_DAY);
+    const iso = toISODate(d);
+    if (iso < fromISO) continue;
+    if (repeat === "weekdays") {
+      const dow = d.getDay();
+      if (dow === 0 || dow === 6) continue;
+    }
+    out.push(iso);
+  }
+  return out;
+}
+
+export function spawnBulletinInstances(prev: DB): DB {
+  const templates = prev.bulletin.filter((b) => b.isTemplate && b.repeat && b.repeat !== "none");
+  if (templates.length === 0) return prev;
+  let nid = prev.bulletin.reduce((m, b) => Math.max(m, b.id), 0) + 1;
+  const added: BulletinItem[] = [];
+  for (const t of templates) {
+    for (const day of eligibleDays(t.date, t.repeat as "daily" | "weekdays")) {
+      const exists =
+        prev.bulletin.some((b) => b.templateId === t.id && b.date === day) ||
+        added.some((b) => b.templateId === t.id && b.date === day);
+      if (exists) continue;
+      added.push({
+        ...t, id: nid++, date: day, templateId: t.id, isTemplate: false, repeat: "none",
+        status: "Open", completedAt: null, completedBy: null, carriedFrom: undefined, dropped: false,
+        createdAt: nowISO(), replies: [],
+      });
+    }
+  }
+  return added.length ? { ...prev, bulletin: [...prev.bulletin, ...added] } : prev;
+}
+
+export function resolveStaleBulletins(prev: DB): DB {
+  const casesById = new Map(prev.cases.map((c) => [c.id, c]));
+  let rid = prev.bulletin.reduce((m, b) => Math.max(m, b.id, ...b.replies.map((r) => r.id)), 0) + 1;
+  let changed = false;
+  const bulletin = prev.bulletin.map((b) => {
+    if (b.caseId != null && b.status === "Open" && !b.isTemplate && !b.dropped) {
+      const c = casesById.get(b.caseId);
+      if (!c || c.caseStatus !== "Active") {
+        changed = true;
+        return {
+          ...b,
+          status: "Done" as const,
+          completedAt: nowISO(),
+          completedBy: null,
+          replies: [...b.replies, { id: rid++, userId: b.issuedBy, text: "Case closed — directive resolved automatically, no action needed.", at: nowISO() }],
+        };
+      }
+    }
+    return b;
+  });
+  return changed ? { ...prev, bulletin } : prev;
+}
+
+export function bulletinVisible(b: BulletinItem, me: User, db: DB): boolean {
+  const f = flagsFor(db.designations, me.role);
+  if (f.scope === "all") return true;
+  if (b.issuedBy === me.id || b.targets.includes(me.id)) return true;
+  if (f.scope === "team") {
+    const issuer = db.users.find((u) => u.id === b.issuedBy);
+    if (issuer?.team === me.team) return true;
+    return b.targets.some((t) => db.users.find((u) => u.id === t)?.team === me.team);
+  }
+  return false;
+}
+
+export function bulletinCanAct(b: BulletinItem, me: User, db: DB): boolean {
+  const f = flagsFor(db.designations, me.role);
+  return f.scope === "all" || b.issuedBy === me.id || b.targets.includes(me.id);
+}
+
+export function bulletinCanManage(b: BulletinItem, me: User, db: DB): boolean {
+  const f = flagsFor(db.designations, me.role);
+  return f.scope === "all" || b.issuedBy === me.id;
+}
+
+export function bulletinCanDelete(b: BulletinItem, me: User, db: DB): boolean {
+  return bulletinCanManage(b, me, db);
+}
+
+/* ================= provider ================= */
+
 export function StoreProvider({ children }: { children: ReactNode }) {
   const [db, setDb] = useState<DB>(loadDb);
   const [sessionId, setSessionId] = useState<number | null>(() => {
@@ -298,15 +276,12 @@ export function StoreProvider({ children }: { children: ReactNode }) {
   const [toasts, setToasts] = useState<ToastMsg[]>([]);
   const toastId = useRef(0);
 
-  /* Boot: apply the bulletin lifecycle (spawn routines / resolve stale) to whatever
-     state we start with. When Supabase is configured, hydrate from the shared database
-     first, then apply the same lifecycle — so the whole team shares one source of truth. */
   useEffect(() => {
     let cancelled = false;
     if (isSupabaseOn) {
       fetchAppState().then((server) => {
         if (cancelled) return;
-        setDb((prev) => resolveStaleBulletins(spawnBulletinInstances(isValidDb(server) ? server : prev)));
+        setDb((prev) => resolveStaleBulletins(spawnBulletinInstances(server ?? prev)));
       });
     } else {
       setDb((prev) => resolveStaleBulletins(spawnBulletinInstances(prev)));
@@ -317,9 +292,32 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  /* Persist on every change: always keep a local copy (so the no-Supabase build works
-     and survives refresh), and when Supabase is configured, write the shared document
-     too — debounced so rapid edits batch into one save. */
+  /* If we've just returned from the Microsoft consent redirect (?code=…),
+     exchange it for a token and pull the matching inbox emails. */
+  useEffect(() => {
+    let cancelled = false;
+    completeAuth().then((connected) => {
+      if (cancelled || !connected) return;
+      fetchInboxEmails()
+        .then((msgs) => {
+          if (cancelled) return;
+          setDb((prev) => {
+            const known = new Set(prev.emails.map((e) => e.graphId).filter(Boolean));
+            const caseByNumber = new Map(prev.cases.map((c) => [c.caseNumber, c.id]));
+            const fresh = msgs
+              .filter((m) => !known.has(m.id))
+              .map((m) => toEmailLog(m, (() => { const n = matchCaseNumber(m.subject); return n ? caseByNumber.get(n) ?? null : null; })()));
+            return fresh.length ? { ...prev, emails: [...fresh, ...prev.emails].map((e, i) => ({ ...e, id: nextId(prev.emails) + i })) } : prev;
+          });
+        })
+        .catch(() => undefined);
+    });
+    return () => {
+      cancelled = true;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
   useEffect(() => {
     try {
       localStorage.setItem(DB_KEY, JSON.stringify(db));
@@ -361,7 +359,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
 
   const logAct = (list: Activity[], caseId: number, userId: number, action: string, oldValue?: string, newValue?: string): Activity[] => [
     ...list,
-    { id: nextId(list), caseId, userId, at: nowISO(), action, oldValue, newValue },
+    { id: nextId(list), caseId, userId, at: nowISO(), action, oldValue: oldValue ?? undefined, newValue: newValue ?? undefined },
   ];
 
   /* ---------------- auth ---------------- */
@@ -448,7 +446,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       }
       return t.ownerId === session.id;
     },
-    [db.users, session]
+    [db, session]
   );
 
   /* ---------------- cases ---------------- */
@@ -481,18 +479,10 @@ export function StoreProvider({ children }: { children: ReactNode }) {
           tasks = [
             ...tasks,
             {
-              id: nextId(tasks),
-              caseId: c.id,
-              description: input.task!.description.trim(),
-              ownerId: input.task!.ownerId,
-              createdBy: me?.id ?? 0,
-              waitingFor: input.task!.waitingFor,
-              whyPending: input.task!.whyPending,
-              createdAt: nowISO(),
-              dueDate: input.task!.dueDate,
-              status: "Open",
-              completedAt: null,
-              remarks: "",
+              id: nextId(tasks), caseId: c.id, description: input.task!.description.trim(),
+              ownerId: input.task!.ownerId, createdBy: me?.id ?? 0, waitingFor: input.task!.waitingFor,
+              whyPending: input.task!.whyPending, createdAt: nowISO(), dueDate: input.task!.dueDate,
+              status: "Open", completedAt: null, remarks: "",
             },
           ];
         }
@@ -519,12 +509,8 @@ export function StoreProvider({ children }: { children: ReactNode }) {
           acts = logAct(acts, id, me?.id ?? 0, "Owner changed",
             prev.users.find((u) => u.id === before.ownerId)?.name ?? "—",
             prev.users.find((u) => u.id === patch.ownerId)?.name ?? "—");
-        if (patch.customer !== undefined && patch.customer !== before.customer)
-          acts = logAct(acts, id, me?.id ?? 0, "Customer updated", before.customer, patch.customer);
         if (patch.banks !== undefined && JSON.stringify(patch.banks) !== JSON.stringify(before.banks))
           acts = logAct(acts, id, me?.id ?? 0, "Bank submissions updated", before.banks.join(", ") || "TBC", patch.banks.join(", ") || "TBC");
-        if (patch.loanAmount !== undefined && patch.loanAmount !== before.loanAmount)
-          acts = logAct(acts, id, me?.id ?? 0, "Loan amount updated", String(before.loanAmount), String(patch.loanAmount));
         return {
           ...prev,
           cases: prev.cases.map((c) => (c.id === id ? { ...c, ...patch, updatedAt: nowISO() } : c)),
@@ -542,8 +528,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
         const before = prev.cases.find((c) => c.id === id);
         if (!before) return prev;
         let acts = prev.activities;
-        if (state === "Closed")
-          acts = logAct(acts, id, me?.id ?? 0, "Case booked", undefined, wonBank ?? before.wonBank ?? "—");
+        if (state === "Closed") acts = logAct(acts, id, me?.id ?? 0, "Case booked", undefined, wonBank ?? before.wonBank ?? "—");
         if (state === "Lost") acts = logAct(acts, id, me?.id ?? 0, "Case marked lost", before.stage);
         if (state === "Active") acts = logAct(acts, id, me?.id ?? 0, "Case reopened", before.caseStatus);
         const next: DB = {
@@ -562,8 +547,6 @@ export function StoreProvider({ children }: { children: ReactNode }) {
           ),
           activities: acts,
         };
-        /* the moment a case leaves the live pipeline, any open directives pinned to it
-           resolve themselves — no stale "chase this" items linger on a closed file */
         return state === "Active" ? next : resolveStaleBulletins(next);
       });
     },
@@ -578,6 +561,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       instructions: prev.instructions.filter((i) => i.caseId !== id),
       activities: prev.activities.filter((a) => a.caseId !== id),
       affordabilityChecks: prev.affordabilityChecks.map((k) => (k.caseId === id ? { ...k, caseId: null } : k)),
+      emails: prev.emails.map((e) => (e.caseId === id ? { ...e, caseId: null } : e)),
     }));
   }, []);
 
@@ -596,18 +580,9 @@ export function StoreProvider({ children }: { children: ReactNode }) {
         );
         for (const s of superseded) acts = logAct(acts, caseId, me?.id ?? 0, "Task superseded", s.description);
         const t: Task = {
-          id: nextId(tasks),
-          caseId,
-          description: input.description.trim(),
-          ownerId: input.ownerId,
-          createdBy: me?.id ?? 0,
-          waitingFor: input.waitingFor,
-          whyPending: input.whyPending,
-          createdAt: nowISO(),
-          dueDate: input.dueDate,
-          status: "Open",
-          completedAt: null,
-          remarks: "",
+          id: nextId(tasks), caseId, description: input.description.trim(), ownerId: input.ownerId,
+          createdBy: me?.id ?? 0, waitingFor: input.waitingFor, whyPending: input.whyPending,
+          createdAt: nowISO(), dueDate: input.dueDate, status: "Open", completedAt: null, remarks: "",
         };
         const byName = prev.users.find((u) => u.id === t.createdBy)?.name ?? "—";
         const toName = prev.users.find((u) => u.id === t.ownerId)?.name ?? "—";
@@ -665,22 +640,18 @@ export function StoreProvider({ children }: { children: ReactNode }) {
 
   /* ---------------- instructions ---------------- */
 
+  const nextReplyId = (prev: DB): number =>
+    Math.max(0, ...prev.instructions.flatMap((i) => i.replies.map((r) => r.id)), ...prev.bulletin.flatMap((b) => b.replies.map((r) => r.id))) + 1;
+
   const addInstruction = useCallback(
     (caseId: number, input: { instruction: string; assignedTo: number; dueDate: string }) => {
       const me = session;
       setDb((prev) => {
         const list = prev.instructions;
         const i = {
-          id: nextId(list),
-          caseId,
-          issuedBy: me?.id ?? 0,
-          instruction: input.instruction.trim(),
-          assignedTo: input.assignedTo,
-          dueDate: input.dueDate,
-          status: "Open" as const,
-          createdAt: nowISO(),
-          completedAt: null,
-          replies: [],
+          id: nextId(list), caseId, issuedBy: me?.id ?? 0, instruction: input.instruction.trim(),
+          assignedTo: input.assignedTo, dueDate: input.dueDate, status: "Open" as const,
+          createdAt: nowISO(), completedAt: null, replies: [],
         };
         return {
           ...prev,
@@ -708,13 +679,6 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     [session]
   );
 
-  const nextReplyId = (prev: DB): number =>
-    Math.max(
-      0,
-      ...prev.instructions.flatMap((i) => i.replies.map((r) => r.id)),
-      ...prev.bulletin.flatMap((b) => b.replies.map((r) => r.id))
-    ) + 1;
-
   const replyToInstruction = useCallback(
     (id: number, text: string) => {
       const me = session;
@@ -739,58 +703,24 @@ export function StoreProvider({ children }: { children: ReactNode }) {
         let nid = nextId(prev.bulletin);
         const list = [...prev.bulletin];
         let acts = prev.activities;
-
         if (input.asTemplate && input.repeat && input.repeat !== "none") {
-          // save the routine: a hidden template + today's live instance
           const templateId = nid++;
           list.push({
-            id: templateId,
-            date: input.date,
-            issuedBy: me?.id ?? 0,
-            task: input.task.trim(),
-            caseId: input.caseId,
-            targets: input.targets,
-            status: "Open",
-            completedAt: null,
-            completedBy: null,
-            createdAt: nowISO(),
-            replies: [],
-            repeat: input.repeat,
-            templateId: null,
-            isTemplate: true,
+            id: templateId, date: input.date, issuedBy: me?.id ?? 0, task: input.task.trim(), caseId: input.caseId,
+            targets: input.targets, status: "Open", completedAt: null, completedBy: null, createdAt: nowISO(), replies: [],
+            repeat: input.repeat, templateId: null, isTemplate: true,
           });
-          const inst: BulletinItem = {
-            id: nid++,
-            date: todayISO(),
-            issuedBy: me?.id ?? 0,
-            task: input.task.trim(),
-            caseId: input.caseId,
-            targets: input.targets,
-            status: "Open",
-            completedAt: null,
-            completedBy: null,
-            createdAt: nowISO(),
-            replies: [],
-            templateId,
-            isTemplate: false,
-          };
-          list.push(inst);
-          if (input.caseId) acts = logAct(acts, input.caseId, me?.id ?? 0, "Directive issued (routine)", undefined, inst.task);
+          list.push({
+            id: nid++, date: todayISO(), issuedBy: me?.id ?? 0, task: input.task.trim(), caseId: input.caseId,
+            targets: input.targets, status: "Open", completedAt: null, completedBy: null, createdAt: nowISO(), replies: [],
+            templateId, isTemplate: false,
+          });
+          if (input.caseId) acts = logAct(acts, input.caseId, me?.id ?? 0, "Directive issued (routine)", undefined, input.task);
           return { ...prev, bulletin: list, activities: acts };
         }
-
         const b: BulletinItem = {
-          id: nid++,
-          date: input.date,
-          issuedBy: me?.id ?? 0,
-          task: input.task.trim(),
-          caseId: input.caseId,
-          targets: input.targets,
-          status: "Open",
-          completedAt: null,
-          completedBy: null,
-          createdAt: nowISO(),
-          replies: [],
+          id: nid++, date: input.date, issuedBy: me?.id ?? 0, task: input.task.trim(), caseId: input.caseId,
+          targets: input.targets, status: "Open", completedAt: null, completedBy: null, createdAt: nowISO(), replies: [],
         };
         if (input.caseId) acts = logAct(acts, input.caseId, me?.id ?? 0, "Directive issued", undefined, b.task);
         return { ...prev, bulletin: [...list, b], activities: acts };
@@ -807,9 +737,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
         if (!before) return prev;
         let acts = prev.activities;
         let tasks = prev.tasks;
-        if (before.caseId)
-          acts = logAct(acts, before.caseId, me?.id ?? 0, "Directive completed", before.task);
-        // smart link: optionally close the case's current task in the same move
+        if (before.caseId) acts = logAct(acts, before.caseId, me?.id ?? 0, "Directive completed", before.task);
         if (opts?.alsoTaskDone && before.caseId) {
           const open = tasks.find((t) => t.caseId === before.caseId && t.status === "Open");
           if (open) {
@@ -841,30 +769,17 @@ export function StoreProvider({ children }: { children: ReactNode }) {
         const before = prev.bulletin.find((b) => b.id === id);
         if (!before || before.status !== "Open" || before.dropped) return prev;
         const today = todayISO();
-        let nid = nextId(prev.bulletin);
+        const nid = nextId(prev.bulletin);
         const carried: BulletinItem = {
-          ...before,
-          id: nid++,
-          date: today,
-          carriedFrom: before.date,
-          templateId: before.templateId ?? null,
-          isTemplate: false,
-          status: "Open",
-          completedAt: null,
-          completedBy: null,
-          createdAt: nowISO(),
-          replies: [],
-          dropped: false,
+          ...before, id: nid, date: today, carriedFrom: before.date, templateId: before.templateId ?? null,
+          isTemplate: false, status: "Open", completedAt: null, completedBy: null, createdAt: nowISO(),
+          replies: [], dropped: false,
         };
         let acts = prev.activities;
-        if (before.caseId)
-          acts = logAct(acts, before.caseId, me?.id ?? 0, "Directive carried forward", before.date, today);
+        if (before.caseId) acts = logAct(acts, before.caseId, me?.id ?? 0, "Directive carried forward", before.date, today);
         return {
           ...prev,
-          bulletin: [
-            ...prev.bulletin.map((b) => (b.id === id ? { ...b, dropped: true } : b)),
-            carried,
-          ],
+          bulletin: [...prev.bulletin.map((b) => (b.id === id ? { ...b, dropped: true } : b)), carried],
           activities: acts,
         };
       });
@@ -880,12 +795,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const deleteBulletin = useCallback((id: number) => {
-    setDb((prev) => {
-      const before = prev.bulletin.find((b) => b.id === id);
-      if (!before) return prev;
-      // deleting a template retires its future spawns; past instances stay as record
-      return { ...prev, bulletin: prev.bulletin.filter((b) => b.id !== id) };
-    });
+    setDb((prev) => ({ ...prev, bulletin: prev.bulletin.filter((b) => b.id !== id) }));
   }, []);
 
   const replyToBulletin = useCallback(
@@ -903,132 +813,48 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     [session]
   );
 
-  /* ---------------- email log (Outlook / Graph) ---------------- */
+  /* ---------------- mortgage checks ---------------- */
 
-  /* upsert by message id; auto-links emails whose customer+bank matched a live case */
-  const ingestEmails = useCallback((list: EmailLog[]): { added: number; matched: number } => {
-    let added = 0;
-    let matched = 0;
-    setDb((prev) => {
-      const existing = new Set(prev.emails.map((e) => e.id));
-      const fresh = list.filter((e) => !existing.has(e.id));
-      added = fresh.length;
-      matched = fresh.filter((e) => e.caseId != null).length;
-      return { ...prev, emails: [...fresh, ...prev.emails].sort((a, b) => b.receivedAt.localeCompare(a.receivedAt)) };
-    });
-    return { added, matched };
-  }, []);
-
-  const linkEmail = useCallback(
-    (emailId: string, caseId: number) => {
+  const saveMortgageCheck = useCallback(
+    (name: string, whatsapp: string, payload: string, summary: { income: number; emi: number; final: number; rate: number; tenorMonths: number; ltv: number; eligible: boolean }): number => {
       const me = session;
+      void whatsapp;
+      let newId = 0;
       setDb((prev) => {
-        const email = prev.emails.find((e) => e.id === emailId);
-        if (!email) return prev;
-        const c = prev.cases.find((x) => x.id === caseId);
-        let acts = prev.activities;
-        if (c) acts = logAct(acts, caseId, me?.id ?? 0, "Email linked", email.direction === "out" ? "query sent" : "reply received", email.subject);
+        newId = nextId(prev.affordabilityChecks);
         return {
           ...prev,
-          emails: prev.emails.map((e) =>
-            e.id === emailId ? { ...e, caseId, linkedAt: nowISO(), linkedBy: me?.id ?? null } : e
-          ),
-          activities: acts,
+          affordabilityChecks: [
+            ...prev.affordabilityChecks,
+            {
+              id: newId, caseId: null, customerName: name.trim(),
+              monthlyIncome: summary.income, otherIncome: 0, existingEmis: summary.emi, age: 0,
+              employmentType: "Salaried", propertyValue: 0, bank: "", interestRate: summary.rate,
+              tenureYears: Math.round(summary.tenorMonths / 12), applicableLtv: summary.ltv,
+              maxLoanByLtv: 0, maxDbrPct: 50, availableDbrEmi: 0, maxLoanByDbr: 0,
+              maxTenureByAge: Math.round(summary.tenorMonths / 12), finalEligibleLoan: summary.final,
+              estimatedEmi: summary.emi, eligible: summary.eligible, createdBy: me?.id ?? 0,
+              createdAt: nowISO(), payload,
+            },
+          ],
         };
       });
-    },
-    [session]
-  );
-
-  const logEmailSent = useCallback(
-    (caseId: number, subject: string) => {
-      const me = session;
-      setDb((prev) => ({
-        ...prev,
-        emails: [
-          {
-            id: `out-${Date.now()}`,
-            subject,
-            fromName: me?.name ?? "HFMC",
-            fromAddress: "operations@hfmcgroupuae.com",
-            direction: "out" as const,
-            customer: prev.cases.find((c) => c.id === caseId)?.customer ?? null,
-            bank: prev.cases.find((c) => c.id === caseId)?.banks[0] ?? null,
-            caseId,
-            receivedAt: nowISO(),
-            snippet: "Composed in Outlook · CC SalesProgressionDL, VIRTUALRM1",
-            linkedAt: nowISO(),
-            linkedBy: me?.id ?? null,
-          },
-          ...prev.emails,
-        ],
-        activities: logAct(prev.activities, caseId, me?.id ?? 0, "Query email sent (Outlook)", undefined, subject),
-      }));
-    },
-    [session]
-  );
-
-  /* ---------------- affordability ---------------- */
-
-  const runCheck = useCallback(
-    (input: CalcInput, customerName: string) => {
-      const me = session;
-      const r = computeAffordability(input);
-      setDb((prev) => ({
-        ...prev,
-        affordabilityChecks: [
-          ...prev.affordabilityChecks,
-          {
-            id: nextId(prev.affordabilityChecks),
-            caseId: null,
-            customerName: customerName.trim(),
-            monthlyIncome: input.monthlyIncome,
-            otherIncome: input.otherIncome,
-            existingEmis: input.existingEmis,
-            age: input.age,
-            employmentType: input.employmentType,
-            propertyValue: input.propertyValue,
-            bank: input.bank,
-            interestRate: r.rateUsed,
-            tenureYears: r.tenureUsed,
-            applicableLtv: r.applicableLtv,
-            maxLoanByLtv: r.maxLoanByLtv,
-            maxDbrPct: r.maxDbrPct,
-            availableDbrEmi: r.availableDbrEmi,
-            maxLoanByDbr: r.maxLoanByDbr,
-            maxTenureByAge: r.maxTenureByAge,
-            finalEligibleLoan: r.finalEligibleLoan,
-            estimatedEmi: r.estimatedEmi,
-            eligible: r.eligible,
-            createdBy: me?.id ?? 0,
-            createdAt: nowISO(),
-          },
-        ],
-      }));
+      return newId;
     },
     [session]
   );
 
   const createCaseFromCheck = useCallback(
-    (checkId: number, submitToBank = true, checkOverride?: AffordabilityCheck): LoanCase | null => {
+    (checkId: number, submitToBank = false, checkOverride?: AffordabilityCheck): LoanCase | null => {
       const me = session;
       const k = checkOverride ?? db.affordabilityChecks.find((x) => x.id === checkId);
       if (!k || !me) return null;
-      const banks = submitToBank && k.bank ? [k.bank] : [];
       const maxNum = db.cases.reduce((m, c) => Math.max(m, parseInt(c.caseNumber.split("-")[1] ?? "0", 10)), 0);
-      let whatsapp = "";
-      if (k.payload) {
-        try {
-          whatsapp = (JSON.parse(k.payload) as { input?: { whatsapp?: string } }).input?.whatsapp ?? "";
-        } catch {
-          /* corrupt payload — ignore */
-        }
-      }
       const c: LoanCase = {
         id: nextId(db.cases),
         caseNumber: `CASE-${String(maxNum + 1).padStart(6, "0")}`,
         customer: k.customerName,
-        banks,
+        banks: submitToBank && k.bank ? [k.bank] : [],
         wonBank: null,
         loanAmount: k.finalEligibleLoan,
         stage: "WhatsApp Group Creation",
@@ -1037,32 +863,30 @@ export function StoreProvider({ children }: { children: ReactNode }) {
         ownerId: me.id,
         source: "Direct",
         partner: null,
-        whatsapp,
+        whatsapp: (() => {
+          try {
+            const p = k.payload ? (JSON.parse(k.payload) as { input?: { whatsapp?: string } }) : null;
+            return p?.input?.whatsapp ?? "";
+          } catch {
+            return "";
+          }
+        })(),
         waGroup: null,
         createdAt: nowISO(),
         updatedAt: nowISO(),
       };
       setDb((prev) => {
-        let tasks = prev.tasks;
         const first: Task = {
-          id: nextId(tasks),
-          caseId: c.id,
-          description: `Collect income & property documents — file assessed for AED ${(k.finalEligibleLoan / 1000).toFixed(0)}K${k.bank ? ` at ${k.bank}` : ""}`,
-          ownerId: me.id,
-          createdBy: me.id,
-          waitingFor: "Client",
-          whyPending: "Awaiting client documents",
-          createdAt: nowISO(),
-          dueDate: new Date(Date.now() + 3 * 86400000).toISOString().slice(0, 10),
-          status: "Open",
-          completedAt: null,
-          remarks: "",
+          id: nextId(prev.tasks), caseId: c.id,
+          description: `Collect income & property documents — assessed at AED ${(k.finalEligibleLoan / 1000).toFixed(0)}K`,
+          ownerId: me.id, createdBy: me.id, waitingFor: "Client", whyPending: "Awaiting client documents",
+          createdAt: nowISO(), dueDate: new Date(Date.now() + 3 * 86400000).toISOString().slice(0, 10),
+          status: "Open", completedAt: null, remarks: "",
         };
-        tasks = [...tasks, first];
         return {
           ...prev,
           cases: [...prev.cases, c],
-          tasks,
+          tasks: [...prev.tasks, first],
           affordabilityChecks: prev.affordabilityChecks.map((x) => (x.id === checkId ? { ...x, caseId: c.id } : x)),
           activities: logAct(logAct([], c.id, me.id, "Case created", undefined, c.stage), c.id, me.id, "Affordability check linked", `#${k.id}`),
         };
@@ -1078,6 +902,38 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       affordabilityChecks: prev.affordabilityChecks.map((x) => (x.id === checkId ? { ...x, caseId } : x)),
       activities: logAct(prev.activities, caseId, prev.users[0]?.id ?? 0, "Affordability check linked", `#${checkId}`),
     }));
+  }, []);
+
+  /* ---------------- emails ---------------- */
+
+  const logEmail = useCallback((input: Omit<EmailLog, "id">) => {
+    setDb((prev) => {
+      const e: EmailLog = { ...input, id: nextId(prev.emails) };
+      let acts = prev.activities;
+      if (e.caseId)
+        acts = logAct(acts, e.caseId, 0, e.direction === "sent" ? "Query email sent" : "Email received", undefined, e.subject);
+      return { ...prev, emails: [e, ...prev.emails], activities: acts };
+    });
+  }, []);
+
+  const syncGraphEmails = useCallback(async (): Promise<number> => {
+    const msgs = await fetchInboxEmails();
+    let added = 0;
+    setDb((prev) => {
+      const known = new Set(prev.emails.map((e) => e.graphId).filter(Boolean));
+      const caseByNumber = new Map(prev.cases.map((c) => [c.caseNumber, c.id]));
+      const fresh = msgs
+        .filter((m) => !known.has(m.id))
+        .map((m) => {
+          const n = matchCaseNumber(m.subject);
+          return toEmailLog(m, n ? caseByNumber.get(n) ?? null : null);
+        });
+      added = fresh.length;
+      if (!fresh.length) return prev;
+      let nid = nextId(prev.emails);
+      return { ...prev, emails: [...fresh.map((f) => ({ ...f, id: nid++ })), ...prev.emails] };
+    });
+    return added;
   }, []);
 
   /* ---------------- admin: users ---------------- */
@@ -1250,58 +1106,6 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     setDb((prev) => ({ ...prev, slaRules: prev.slaRules.filter((r) => r.id !== id) }));
   }, []);
 
-  /* ---------------- mortgage checks ---------------- */
-
-  const saveMortgageCheck = useCallback(
-    (
-      name: string,
-      whatsapp: string,
-      payload: string,
-      summary: { income: number; emi: number; final: number; rate: number; tenorMonths: number; ltv: number; eligible: boolean }
-    ): number => {
-      const me = session;
-      const newId = nextId(db.affordabilityChecks);
-      setDb((prev) => {
-        return {
-          ...prev,
-          affordabilityChecks: [
-            ...prev.affordabilityChecks.filter((k) => k.id !== newId),
-            {
-              id: newId,
-              caseId: null,
-              customerName: name.trim(),
-              monthlyIncome: summary.income,
-              otherIncome: 0,
-              existingEmis: summary.emi,
-              age: 0,
-              employmentType: "Salaried",
-              propertyValue: 0,
-              bank: "",
-              interestRate: summary.rate,
-              tenureYears: Math.round(summary.tenorMonths / 12),
-              applicableLtv: summary.ltv,
-              maxLoanByLtv: 0,
-              maxDbrPct: 50,
-              availableDbrEmi: 0,
-              maxLoanByDbr: 0,
-              maxTenureByAge: Math.round(summary.tenorMonths / 12),
-              finalEligibleLoan: summary.final,
-              estimatedEmi: summary.emi,
-              eligible: summary.eligible,
-              createdBy: me?.id ?? 0,
-              createdAt: nowISO(),
-              payload,
-            },
-          ],
-        };
-      });
-      // whatsapp piggybacks on payload; keep param for future use
-      void whatsapp;
-      return newId;
-    },
-    [session, db.affordabilityChecks]
-  );
-
   /* ---------------- admin: designations ---------------- */
 
   const addDesignation = useCallback(
@@ -1341,7 +1145,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     (id: number): string | null => {
       const item = db.designations.find((d) => d.id === id);
       if (!item) return "Designation not found.";
-      if (item.builtIn) return "Built-in designations cannot be deleted — deactivate isn't needed; just stop using it.";
+      if (item.builtIn) return "Built-in designations cannot be deleted.";
       const used = db.users.filter((u) => u.role === item.name).length;
       if (used > 0) return `Blocked: ${used} user(s) still hold "${item.name}". Change their designation first.`;
       setDb((prev) => ({ ...prev, designations: prev.designations.filter((d) => d.id !== id) }));
@@ -1356,13 +1160,13 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     addInstruction, completeInstruction, replyToInstruction,
     issueBulletin, completeBulletin, carryBulletin, dropBulletin, deleteBulletin, replyToBulletin,
     canInstruct, canAdmin,
-    saveMortgageCheck, addDesignation, updateDesignation, deleteDesignation,
-    runCheck, createCaseFromCheck, linkCheckToCase,
+    saveMortgageCheck, createCaseFromCheck, linkCheckToCase,
+    logEmail, syncGraphEmails,
     saveUser, deleteUser, addMaster, toggleMaster, deleteMaster, moveStage,
     addBank, updateBankRate, toggleBank, deleteBank,
     addPartner, updatePartnerShare, togglePartner, deletePartner,
     saveSla, toggleSla, deleteSla,
-    ingestEmails, linkEmail, logEmailSent,
+    addDesignation, updateDesignation, deleteDesignation,
     userById, visibleCases, visibleTasks, canEditCase, canEditTask,
   };
 

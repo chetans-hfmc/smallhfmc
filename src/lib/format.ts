@@ -109,10 +109,10 @@ export const commissionOf = (ratePct: number, loanAmount: number) => (loanAmount
 export interface CommissionBreakdown {
   bank: string | null;
   ratePct: number;
-  gross: number; // our commission from the bank
+  gross: number;
   partnerSharePct: number;
-  partnerCut: number; // paid to agent / broker / referrer
-  net: number; // what the firm keeps
+  partnerCut: number;
+  net: number;
 }
 
 export function commissionFor(c: LoanCase, banks: BankItem[]): CommissionBreakdown {

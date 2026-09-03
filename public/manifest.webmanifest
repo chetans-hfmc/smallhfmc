@@ -1,24 +1,20 @@
 {
-  "name": "HFMC Case Tracker — UAE Mortgage Pipeline",
+  "name": "HFMC Case Tracker",
   "short_name": "HFMC",
-  "description": "The shared UAE mortgage pipeline: cases, bank submissions, commissions, directives and the MPBF calculator.",
-  "id": "/",
+  "description": "Shared UAE mortgage pipeline: cases, bank submissions, commissions, tasks, directives, emails and reports.",
   "start_url": "/",
   "scope": "/",
   "display": "standalone",
   "orientation": "portrait-primary",
   "background_color": "#0b171d",
   "theme_color": "#0b171d",
-  "lang": "en",
-  "categories": ["business", "finance", "productivity"],
   "icons": [
-    { "src": "/icons/icon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any" },
-    { "src": "/icons/icon.svg", "sizes": "512x512", "type": "image/svg+xml", "purpose": "maskable" }
+    { "src": "/icon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any" },
+    { "src": "/icon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "maskable" }
   ],
   "shortcuts": [
-    { "name": "Dashboard", "url": "/#/", "icons": [{ "src": "/icons/icon.svg", "sizes": "any", "type": "image/svg+xml" }] },
-    { "name": "Morning Bulletin", "url": "/#/bulletin", "icons": [{ "src": "/icons/icon.svg", "sizes": "any", "type": "image/svg+xml" }] },
-    { "name": "Calculator", "url": "/#/calculator", "icons": [{ "src": "/icons/icon.svg", "sizes": "any", "type": "image/svg+xml" }] },
-    { "name": "Reports", "url": "/#/reports", "icons": [{ "src": "/icons/icon.svg", "sizes": "any", "type": "image/svg+xml" }] }
+    { "name": "Morning Bulletin", "url": "/#/bulletin", "icons": [{ "src": "/icon.svg", "sizes": "any" }] },
+    { "name": "Calculator", "url": "/#/calculator", "icons": [{ "src": "/icon.svg", "sizes": "any" }] },
+    { "name": "Task Queue", "url": "/#/tasks", "icons": [{ "src": "/icon.svg", "sizes": "any" }] }
   ]
 }

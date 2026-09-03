@@ -205,7 +205,7 @@ export function EmptyState({ icon, title, body }: { icon: ReactNode; title: stri
 export function Toasts() {
   const { toasts, dismissToast } = useStore();
   return (
-    <div className="fixed bottom-5 right-5 z-[60] flex flex-col gap-2.5 w-[min(360px,calc(100vw-40px))]">
+    <div className="fixed bottom-5 right-3 sm:right-5 z-[60] flex flex-col gap-2.5 w-[min(360px,calc(100vw-24px))] safe-b">
       {toasts.map((t) => {
         const color = t.kind === "success" ? "var(--mint)" : t.kind === "error" ? "var(--coral)" : "var(--sky)";
         return (

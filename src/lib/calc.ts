@@ -10,8 +10,8 @@ export interface AffordabilityInput {
   employmentType: "Salaried" | "Self-Employed";
   propertyValue: number;
   bank: string;
-  interestRate: number | null; // annual % — blank = use bank desk rate
-  tenureYears: number | null; // blank = longest allowed by age
+  interestRate: number | null;
+  tenureYears: number | null;
 }
 
 export interface AffordabilityResult {
@@ -31,21 +31,19 @@ export interface AffordabilityResult {
 
 const RETIREMENT_AGE = { Salaried: 60, "Self-Employed": 65 } as const;
 
-// UAE bank desk rates — annual %, floating (EIBOR + margin)
 export const BANK_RATES: Record<string, number> = {
   ADCB: 4.25, ADIB: 4.5, "Ajman Bank": 4.75, "Al Hilal": 4.6, "Arab Bank": 5.0,
   CBD: 4.4, DIB: 4.65, EIB: 4.7, ENBD: 4.35, FAB: 4.2, HSBC: 4.5, Mashreq: 4.45,
   NBF: 4.9, "RAK Bank": 4.8, SCB: 4.3, UAB: 4.55,
 };
 
-// CBUAE-style LTV caps: ≤ AED 5M vs above
 const LTV: Record<"Salaried" | "Self-Employed", [number, number]> = {
   Salaried: [80, 70],
   "Self-Employed": [75, 65],
 };
 
 const MAX_TENURE = { Salaried: 25, "Self-Employed": 20 } as const;
-const MAX_DBR = 50; // debt-burden ratio cap, %
+const MAX_DBR = 50;
 const MIN_LOAN = 250000;
 
 export function emi(principal: number, annualRate: number, years: number): number {
@@ -93,7 +91,7 @@ export function computeAffordability(inp: AffordabilityInput): AffordabilityResu
 
   const eligible = finalEligibleLoan >= MIN_LOAN;
   if (!eligible && maxLoanByDbr < MIN_LOAN && availableDbrEmi > 0)
-    notes.push("DBR room is too thin at this rate and tenure — a bigger down payment won't fix it; income or liabilities must move.");
+    notes.push("DBR room is too thin at this rate and tenure — income or liabilities must move.");
   if (!eligible && maxLoanByDbr >= MIN_LOAN && maxLoanByLtv < MIN_LOAN)
     notes.push("Income supports a loan but the property value caps it below the AED 250K minimum.");
 

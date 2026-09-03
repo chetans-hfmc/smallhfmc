@@ -6,8 +6,6 @@ import { Avatar, Chip, EmptyState } from "../components/ui";
 import { ConfirmModal } from "../components/bits";
 import { IArrowR, ICalendar, ICheck, IDownload, IFlag, IHistory, IInbox, IPlus, ITrash, IX } from "../components/icons";
 
-/* ---------------- shared bits ---------------- */
-
 function ReplyThread({ replies, onSend }: { replies: Reply[]; onSend: (text: string) => void }) {
   const { userById } = useStore();
   const [draft, setDraft] = useState("");
@@ -75,7 +73,7 @@ function DirectiveCard({ b, dense = false }: { b: BulletinItem; dense?: boolean 
 
   return (
     <div className="card card-hover p-4 anim-fade-up" style={{ borderLeft: `3px solid ${edge}`, opacity: b.status === "Done" || b.dropped ? 0.7 : 1 }}>
-      <div className="flex items-start gap-3 max-sm:flex-wrap">
+      <div className="flex items-start gap-3">
         <Avatar name={issuer?.name ?? "?"} size={32} />
         <div className="min-w-0 flex-1">
           <div className="flex flex-wrap items-baseline gap-x-2 gap-y-0.5">
@@ -108,9 +106,8 @@ function DirectiveCard({ b, dense = false }: { b: BulletinItem; dense?: boolean 
           )}
         </div>
 
-        {/* actions */}
         {!dense && (
-          <div className="flex flex-col items-end gap-1.5 sm:shrink-0 max-sm:flex-row max-sm:flex-wrap max-sm:items-center max-sm:justify-end max-sm:w-full">
+          <div className="flex flex-col items-end gap-1.5 shrink-0">
             {canAct && (
               <>
                 <button
@@ -180,8 +177,6 @@ function DirectiveCard({ b, dense = false }: { b: BulletinItem; dense?: boolean 
   );
 }
 
-/* ---------------- composer ---------------- */
-
 function Composer({ onIssued }: { onIssued: () => void }) {
   const { db, session, issueBulletin, toast, visibleCases } = useStore();
   const me = session!;
@@ -222,7 +217,7 @@ function Composer({ onIssued }: { onIssued: () => void }) {
         onChange={(e) => setText(e.target.value)}
       />
       <div className="flex flex-wrap items-center gap-2 mt-3">
-        <select className="select" style={{ width: 210 }} value={caseId ?? ""} onChange={(e) => setCaseId(e.target.value ? parseInt(e.target.value, 10) : null)}>
+        <select className="select !w-auto" style={{ minWidth: 180 }} value={caseId ?? ""} onChange={(e) => setCaseId(e.target.value ? parseInt(e.target.value, 10) : null)}>
           <option value="">General — no case link</option>
           {cases.map((c) => (
             <option key={c.id} value={c.id}>
@@ -230,12 +225,12 @@ function Composer({ onIssued }: { onIssued: () => void }) {
             </option>
           ))}
         </select>
-        <select className="select" style={{ width: 190 }} value={repeat} onChange={(e) => setRepeat(e.target.value as typeof repeat)}>
+        <select className="select !w-auto" value={repeat} onChange={(e) => setRepeat(e.target.value as typeof repeat)}>
           <option value="none">One-off (today only)</option>
           <option value="daily">Repeat · every day</option>
           <option value="weekdays">Repeat · Mon–Fri</option>
         </select>
-        <div className="flex items-center gap-1.5 ml-auto">
+        <div className="flex flex-wrap items-center gap-1.5 ml-auto">
           <span className="text-[11px] uppercase tracking-[0.08em] text-[var(--ink-faint)] font-disp font-semibold">to</span>
           {teamUsers.map((u) => (
             <button
@@ -254,18 +249,16 @@ function Composer({ onIssued }: { onIssued: () => void }) {
         </div>
       </div>
       <div className="flex items-center justify-between mt-3">
-        <p className="text-[11px] text-[var(--ink-faint)] m-0">
+        <p className="text-[11px] text-[var(--ink-faint)] m-0 hidden md:block">
           Case-linked directives auto-resolve when the case is booked or lost. Routines spawn a fresh item each morning.
         </p>
-        <button className="btn btn-primary btn-sm shrink-0" onClick={issue}>
+        <button className="btn btn-primary btn-sm shrink-0 ml-auto" onClick={issue}>
           <IPlus size={13} /> Issue{repeat !== "none" ? " routine" : ""}
         </button>
       </div>
     </div>
   );
 }
-
-/* ---------------- scoreboard ---------------- */
 
 function Scoreboard({ items }: { items: BulletinItem[] }) {
   const { db, userById } = useStore();
@@ -315,8 +308,6 @@ function Scoreboard({ items }: { items: BulletinItem[] }) {
     </div>
   );
 }
-
-/* ---------------- main view ---------------- */
 
 type Tab = "today" | "missed" | "archive";
 
@@ -402,7 +393,7 @@ export default function Bulletin() {
 
       {manager && showComposer && <Composer onIssued={() => setTab("today")} />}
 
-      <div className="flex items-center gap-2">
+      <div className="flex flex-wrap items-center gap-2">
         {tabs.map((t) => (
           <button
             key={t.key}
@@ -479,7 +470,7 @@ export default function Bulletin() {
               <div className="px-4 py-3 border-b flex items-center gap-2" style={{ borderColor: "var(--line-soft)" }}>
                 <ICalendar size={14} className="text-[var(--amber)]" />
                 <h3 className="font-disp font-semibold text-[13.5px] m-0">Recurring routines</h3>
-                <span className="text-[11px] text-[var(--ink-faint)] ml-auto">spawn a fresh item every working morning</span>
+                <span className="text-[11px] text-[var(--ink-faint)] ml-auto hidden sm:inline">spawn a fresh item every working morning</span>
               </div>
               <div className="divide-y" style={{ borderColor: "var(--line-soft)" }}>
                 {templates.map((t) => (

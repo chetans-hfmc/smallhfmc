@@ -49,7 +49,6 @@ export default function Tasks() {
   const all = useMemo(() => visibleTasks(), [visibleTasks]);
   const caseById = useMemo(() => {
     const m = new Map(visibleCases().map((c) => [c.id, c]));
-    // also allow looking up any case referenced (e.g. closed ones outside scope filters)
     for (const c of db.cases) if (!m.has(c.id)) m.set(c.id, c);
     return m;
   }, [visibleCases, db.cases]);
@@ -104,13 +103,13 @@ export default function Tasks() {
           <div className="ml-auto flex flex-wrap items-center gap-2">
             <div className="relative">
               <span className="absolute left-2.5 top-1/2 -translate-y-1/2 text-[var(--ink-faint)]"><ISearch size={14} /></span>
-              <input className="input !pl-8 !py-[6.5px] w-[180px]" placeholder="Search tasks…" value={query} onChange={(e) => setQuery(e.target.value)} />
+              <input className="input !pl-8 !py-[6.5px] !w-[150px] sm:!w-[180px]" placeholder="Search tasks…" value={query} onChange={(e) => setQuery(e.target.value)} />
             </div>
             <select className="select !w-auto !py-[6.5px] text-[12.5px]" value={ownerF} onChange={(e) => setOwnerF(e.target.value)}>
               <option value="all">All owners</option>
               {owners.map((o) => <option key={o.id} value={o.id}>{o.name}</option>)}
             </select>
-            <select className="select !w-auto !py-[6.5px] text-[12.5px]" value={waitingF} onChange={(e) => setWaitingF(e.target.value)}>
+            <select className="select !w-auto !py-[6.5px] text-[12.5px] hidden sm:block" value={waitingF} onChange={(e) => setWaitingF(e.target.value)}>
               <option value="all">Waiting on anyone</option>
               {db.waitingFor.map((w) => <option key={w.id} value={w.label}>{w.label}</option>)}
             </select>
@@ -148,7 +147,7 @@ export default function Tasks() {
                       </td>
                       <td>
                         <button
-                          className="text-left group"
+                          className="text-left group cursor-pointer"
                           onClick={() => nav({ name: "case", id: t.caseId })}
                         >
                           <span className="mono text-[12px] block transition-colors" style={{ color: "var(--amber)" }}>{c?.caseNumber ?? "—"}</span>

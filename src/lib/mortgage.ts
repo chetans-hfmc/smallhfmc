@@ -9,9 +9,11 @@ export type LiabMethod = "Actual EMI" | "5% of Limit" | "5% of Outstanding" | "M
 export const FREQUENCIES: Frequency[] = ["Monthly", "Annual", "Quarterly", "Semi-Annual", "Weekly"];
 export const SALARIED_SOURCES = ["Basic Salary", "Housing Allowance", "Other Allowance", "Bonus", "Commission", "Rental Income", "Other Income"];
 export const SE_SOURCES = ["Business Income", "Salary / Drawings", "Rental Income", "Other Regular Income"];
+export const CO_SOURCES = ["Salary", "Rental Income", "Other Income"];
 export const LIAB_TYPES: LiabType[] = ["Mortgage", "Personal Loan", "Car Loan", "Credit Card", "Overdraft", "Other Loan", "Other Liability"];
 export const LIAB_METHODS: LiabMethod[] = ["Actual EMI", "5% of Limit", "5% of Outstanding", "Manual"];
-export const MAX_DBR = 50; // CBUAE debt-burden ceiling, %
+export const LTV_CHOICES = [60, 70, 80, 85];
+export const MAX_DBR = 50;
 export const CBUAE_MAX_TENOR_YEARS = 25;
 
 export interface IncomeRow {
@@ -33,7 +35,7 @@ export interface LiabRow {
 
 export interface CoBorrower {
   name: string;
-  dob: string; // age limits the tenor, exactly like the applicant
+  dob: string;
   incomes: IncomeRow[];
   liabilities: LiabRow[];
 }
@@ -49,33 +51,29 @@ export interface MortgageInput {
   propertyValue: number;
   valuation: number | null;
   requested: number;
-  ltvPctChoice: number | null; // null = default for applicant type
-  customLtv: string; // free-text custom LTV %; applied when non-empty, overriding the chips
+  ltvPctChoice: number | null;
+  customLtv: string;
   incomes: IncomeRow[];
-  coBorrower: CoBorrower | null; // combined for DBR only — never written to a case
+  coBorrower: CoBorrower | null;
   liabilities: LiabRow[];
   actualRate: number;
   loadFactor: number;
   stressOverride: number | null;
-  multiplierX: number; // annual-income multiple cap; 0 = off
+  multiplierX: number;
   tenorOverrideMonths: number | null;
 }
-
-export const LTV_CHOICES = [60, 70, 80, 85];
-export const defaultLtvPct = (t: ApplicantType): number => (t === "UAE National" ? 85 : 80);
-export const CO_SOURCES = ["Basic Salary", "Other Allowance", "Rental Income", "Business Income", "Other Income"];
 
 export interface MortgageResult {
   ageNowYears: number;
   ageAfterMarginMonths: number;
   remainingMonths: number;
   maxTenorMonths: number;
-  eligibleIncome: number;
   ownIncome: number;
   coIncome: number;
-  existingEmis: number;
+  eligibleIncome: number;
   ownEmis: number;
   coEmis: number;
+  existingEmis: number;
   currentDbr: number;
   maxDbr: number;
   residualDbr: number;
@@ -103,24 +101,48 @@ export interface MortgageResult {
 }
 
 const uid = () => Math.random().toString(36).slice(2, 9);
+
 export const newIncomeRow = (source = "Basic Salary", employment: Employment = "Salaried"): IncomeRow => ({
-  id: uid(), source, frequency: "Monthly", amount: 0, eligiblePct: 100,
-  ...(source === "Business Income" && employment === "Self-Employed" ? { frequency: "Annual" as Frequency, eligiblePct: 70 } : {}),
+  id: uid(),
+  source,
+  frequency: "Monthly",
+  amount: 0,
+  eligiblePct: source === "Business Income" && employment === "Self-Employed" ? 70 : 100,
 });
+
 export const newLiabRow = (type: LiabType = "Credit Card"): LiabRow => ({
-  id: uid(), name: type === "Credit Card" ? "Credit Card" : type, type,
-  limitOrOutstanding: 0, monthlyEmi: 0, method: type === "Credit Card" ? "5% of Limit" : "Actual EMI",
+  id: uid(),
+  name: type === "Credit Card" ? "Credit Card" : type,
+  type,
+  limitOrOutstanding: 0,
+  monthlyEmi: 0,
+  method: type === "Credit Card" ? "5% of Limit" : "Actual EMI",
 });
+
+export const defaultLtvPct = (t: ApplicantType): number => (t === "UAE National" ? 85 : 80);
 
 export function defaultInput(): MortgageInput {
   return {
-    name: "", whatsapp: "", applicantType: "Expatriate", employment: "Salaried",
-    dob: "1990-01-15", finalAge: 60, marginMonths: 2,
-    propertyValue: 1500000, valuation: null, requested: 1200000, ltvPctChoice: null, customLtv: "",
+    name: "",
+    whatsapp: "",
+    applicantType: "Expatriate",
+    employment: "Salaried",
+    dob: "1990-01-15",
+    finalAge: 60,
+    marginMonths: 2,
+    propertyValue: 1500000,
+    valuation: null,
+    requested: 1200000,
+    ltvPctChoice: null,
+    customLtv: "",
     incomes: [newIncomeRow("Basic Salary")],
     coBorrower: null,
     liabilities: [],
-    actualRate: 3.99, loadFactor: 1.5, stressOverride: null, multiplierX: 0, tenorOverrideMonths: null,
+    actualRate: 3.99,
+    loadFactor: 1.5,
+    stressOverride: null,
+    multiplierX: 0,
+    tenorOverrideMonths: null,
   };
 }
 
@@ -171,6 +193,14 @@ export const liabilityEmi = (r: LiabRow): number => {
   }
 };
 
+const LTV_BANDS: Record<ApplicantType, [number, number]> = {
+  "UAE National": [85, 75],
+  Expatriate: [80, 70],
+};
+
+const MAX_TENURE = { Salaried: 25, "Self-Employed": 20 } as const;
+const RETIREMENT_AGE = { Salaried: 60, "Self-Employed": 65 } as const;
+
 /* ---------------- main calculation ---------------- */
 
 export function computeMortgage(inp: MortgageInput): MortgageResult {
@@ -181,8 +211,6 @@ export function computeMortgage(inp: MortgageInput): MortgageResult {
   const ageAfterMarginMonths = ageMonths + Math.max(0, inp.marginMonths);
   const remainingMonths = Math.max(0, inp.finalAge * 12 - ageAfterMarginMonths);
 
-  /* co-borrower age is a tenor factor too: the loan ends when the FIRST borrower
-     reaches the final age, so the shorter remaining period binds */
   const coAgeMonths = inp.coBorrower ? diffMonths(inp.coBorrower.dob) : null;
   const coAgeYears = coAgeMonths != null ? Math.floor(coAgeMonths / 12) : 0;
   const coRemainingMonths =
@@ -190,8 +218,7 @@ export function computeMortgage(inp: MortgageInput): MortgageResult {
 
   const cap = inp.tenorOverrideMonths && inp.tenorOverrideMonths > 0 ? inp.tenorOverrideMonths : CBUAE_MAX_TENOR_YEARS * 12;
   let maxTenorMonths = Math.min(cap, remainingMonths);
-  let tenorLimitedBy: MortgageResult["tenorLimitedBy"] =
-    cap < remainingMonths ? "tenor cap" : "applicant";
+  let tenorLimitedBy: MortgageResult["tenorLimitedBy"] = cap < remainingMonths ? "tenor cap" : "applicant";
   if (coRemainingMonths != null && coRemainingMonths < maxTenorMonths) {
     maxTenorMonths = coRemainingMonths;
     tenorLimitedBy = "co-borrower";
@@ -199,7 +226,7 @@ export function computeMortgage(inp: MortgageInput): MortgageResult {
   if (inp.tenorOverrideMonths) tenorLimitedBy = null;
   if (remainingMonths <= 0) notes.push("Applicant is at or past the final age — no age-based tenor remains.");
   if (coRemainingMonths != null && tenorLimitedBy === "co-borrower")
-    notes.push(`Tenor capped at ${tenorLabel(maxTenorMonths)} by the co-borrower's age (${coAgeYears} yrs) — the loan must end when the first borrower reaches the final age.`);
+    notes.push(`Tenor capped at ${tenorLabel(maxTenorMonths)} by the co-borrower's age (${coAgeYears} yrs).`);
   if (inp.tenorOverrideMonths) notes.push(`Tenor manually set to ${tenorLabel(maxTenorMonths)} (overrides age limits).`);
 
   const ownIncome = inp.incomes.reduce((s, r) => s + incomeMonthly(r), 0);
@@ -219,15 +246,15 @@ export function computeMortgage(inp: MortgageInput): MortgageResult {
   const hasValuation = inp.valuation != null && inp.valuation > 0;
   const calcBasis = hasValuation ? Math.min(inp.propertyValue, inp.valuation as number) : inp.propertyValue;
   const basisLabel = hasValuation
-    ? inp.valuation !== inp.propertyValue && (inp.valuation as number) < inp.propertyValue
+    ? (inp.valuation as number) < inp.propertyValue
       ? "lower of property value & bank valuation"
       : "property value (valuation not lower)"
     : "property value (no valuation yet)";
 
-  const ltvDefault = defaultLtvPct(inp.applicantType);
   const customNum = parseFloat(inp.customLtv);
-  const ltvPct = !Number.isNaN(customNum) && customNum > 0 ? Math.min(95, Math.max(1, customNum)) : inp.ltvPctChoice ?? ltvDefault;
   const ltvIsCustom = !Number.isNaN(customNum) && customNum > 0;
+  const ltvDefault = defaultLtvPct(inp.applicantType);
+  const ltvPct = ltvIsCustom ? Math.min(95, Math.max(1, customNum)) : inp.ltvPctChoice ?? ltvDefault;
   const ltvMpbf = (calcBasis * ltvPct) / 100;
   if (ltvIsCustom || (inp.ltvPctChoice != null && inp.ltvPctChoice !== ltvDefault))
     notes.push(`LTV manually set to ${ltvPct}% (default for ${inp.applicantType} is ${ltvDefault}%).`);
@@ -253,20 +280,18 @@ export function computeMortgage(inp: MortgageInput): MortgageResult {
     `${fmtPct(MAX_DBR)} max − ${fmtPct(currentDbr)} current = ${fmtPct(residualDbr)} residual DBR`,
     `Residual ${fmtPct(residualDbr)} → available EMI ${fmtAED(availableEmi)}/mo`,
     `PV at ${assessmentRate.toFixed(2)}% over ${tenorLabel(maxTenorMonths)} → DBR MPBF ${fmtAED(dbrMpbf)}`,
-    `LTV: ${fmtAED(calcBasis)} × ${ltvPct}% (${inp.ltvPctChoice != null ? "selected" : `default · ${inp.applicantType}`}) → ${fmtAED(ltvMpbf)}`,
+    `LTV: ${fmtAED(calcBasis)} × ${ltvPct}% → ${fmtAED(ltvMpbf)}`,
   ];
+  if (multiplierCap != null) trail.push(`Income multiplier: ${inp.multiplierX}× annual eligible → cap ${fmtAED(multiplierCap)}`);
   if (inp.coBorrower) {
     trail.push(`Combined income: applicant ${fmtAED(ownIncome)} + co-borrower ${fmtAED(coIncome)} = ${fmtAED(eligibleIncome)}/mo`);
-    trail.push(`Combined liabilities: applicant ${fmtAED(ownEmis)} + co-borrower ${fmtAED(coEmis)} = ${fmtAED(existingEmis)}/mo`);
-    if (tenorLimitedBy === "co-borrower")
-      trail.push(`Tenor: ${tenorLabel(remainingMonths)} applicant vs ${tenorLabel(coRemainingMonths ?? 0)} co-borrower → ${tenorLabel(maxTenorMonths)} used (first to reach final age binds)`);
+    trail.push(`Combined liabilities: ${fmtAED(ownEmis)} + ${fmtAED(coEmis)} = ${fmtAED(existingEmis)}/mo`);
   }
-  if (multiplierCap != null) trail.push(`Income multiplier: ${inp.multiplierX}× annual eligible → cap ${fmtAED(multiplierCap)}`);
   trail.push(`Final MPBF = MIN(${caps.map((c) => `${c.label} ${fmtAED(c.v)}`).join(", ")})`);
 
   return {
     ageNowYears, ageAfterMarginMonths, remainingMonths, maxTenorMonths,
-    eligibleIncome, ownIncome, coIncome, existingEmis, ownEmis, coEmis,
+    ownIncome, coIncome, eligibleIncome, ownEmis, coEmis, existingEmis,
     currentDbr, maxDbr: MAX_DBR, residualDbr, availableEmi,
     actualRate: inp.actualRate, loadFactor: inp.loadFactor, assessmentRate,
     calcBasis, basisLabel, ltvPct, dbrMpbf, ltvMpbf, multiplierCap, requested: inp.requested,
@@ -324,18 +349,4 @@ export function scenarioIncomePct(inp: MortgageInput, id: string, pct: number): 
   const c = cloneInput(inp);
   c.incomes = c.incomes.map((r) => (r.id === id ? { ...r, amount: r.amount * pct } : r));
   return c;
-}
-
-export interface ScenarioRow {
-  label: string;
-  dbr: number;
-  residual: number;
-  mpbf: number;
-}
-
-export function scenarioTable(inp: MortgageInput, scenarios: { label: string; input: MortgageInput }[]): ScenarioRow[] {
-  return scenarios.map(({ label, input }) => {
-    const r = computeMortgage(input);
-    return { label, dbr: r.currentDbr, residual: r.residualDbr, mpbf: r.finalMpbf };
-  });
 }

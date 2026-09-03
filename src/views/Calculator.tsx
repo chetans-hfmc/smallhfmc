@@ -3,7 +3,7 @@ import type { ReactNode } from "react";
 import { useStore } from "../lib/store";
 import type { AffordabilityCheck } from "../lib/types";
 import {
-  CO_SOURCES, FREQUENCIES, LIAB_METHODS, LIAB_TYPES, LTV_CHOICES, SALARIED_SOURCES, SE_SOURCES,
+  FREQUENCIES, LIAB_METHODS, LIAB_TYPES, LTV_CHOICES, SALARIED_SOURCES, SE_SOURCES,
   cloneInput, computeMortgage, defaultInput, defaultLtvPct, emiFor, fmtAED, fmtPct, incomeMonthly, liabilityEmi,
   newIncomeRow, newLiabRow, scenarioCardNewLimit, scenarioCardsPct, scenarioIncomePct,
   scenarioIncomeRemove, scenarioRate, scenarioRemoveCards, scenarioRemoveLiab, scenarioTenor, tenorLabel,
@@ -11,7 +11,7 @@ import {
 import type { CoBorrower, Frequency, IncomeRow, LiabRow, MortgageInput, MortgageResult } from "../lib/mortgage";
 import { generateMortgagePdf } from "../lib/pdf";
 import type { PdfScenarioTable } from "../lib/pdf";
-import { relTime } from "../lib/format";
+import { fmtMoney, relTime } from "../lib/format";
 import { Avatar, Chip } from "../components/ui";
 import { ConfirmModal } from "../components/bits";
 import { useCountUp } from "../components/charts";
@@ -22,7 +22,7 @@ import { IArrowR, ICalc, IChevronL, IDownload, IEye, IPlus, ITrash, IX } from ".
 function Section({ num, title, hint, children }: { num: string; title: string; hint?: string; children: ReactNode }) {
   return (
     <section className="card p-4 sm:p-5 anim-fade-up">
-      <div className="flex items-baseline gap-3 mb-3.5">
+      <div className="flex items-baseline gap-3 mb-3.5 flex-wrap">
         <span className="mono text-[11px] font-semibold px-1.5 py-0.5 rounded" style={{ background: "var(--amber-tint)", color: "var(--amber)" }}>{num}</span>
         <h2 className="font-disp font-semibold text-[15px] m-0">{title}</h2>
         {hint && <span className="text-[11.5px] text-[var(--ink-faint)] ml-auto hidden sm:inline">{hint}</span>}
@@ -39,7 +39,7 @@ function ToggleChips({ options, value, onChange }: { options: string[]; value: s
         <button
           key={o}
           type="button"
-          className="flex-1 px-2 py-1.5 text-[12px] font-disp font-semibold transition-all"
+          className="flex-1 px-2 py-1.5 text-[12px] font-disp font-semibold transition-all cursor-pointer"
           style={value === o ? { background: "var(--amber-tint)", color: "var(--amber)" } : { color: "var(--ink-faint)", background: "transparent" }}
           onClick={() => onChange(o)}
         >
@@ -67,10 +67,7 @@ function Stat({ label, value, tone }: { label: string; value: string; tone?: str
 /* migrate saved payloads from older shapes so reloading a historic check never crashes */
 function normalizeInput(raw: Partial<MortgageInput>): MortgageInput {
   const base = defaultInput();
-  const co = raw.coBorrower as
-    | (Partial<CoBorrower> & { existingEmis?: number })
-    | null
-    | undefined;
+  const co = raw.coBorrower as (Partial<CoBorrower> & { existingEmis?: number }) | null | undefined;
   const coBorrower: CoBorrower | null = co
     ? {
         name: co.name ?? "",
@@ -93,101 +90,6 @@ function normalizeInput(raw: Partial<MortgageInput>): MortgageInput {
   } as MortgageInput;
 }
 
-function ToolCard({ title, children, out, note }: { title: string; children: ReactNode; out: string; note: string }) {
-  return (
-    <div className="card card-hover p-4">
-      <div className="text-[10.5px] uppercase tracking-[0.12em] font-disp font-semibold text-[var(--ink-faint)] mb-2.5">{title}</div>
-      {children}
-      <div className="mono text-[19px] font-semibold mt-2.5" style={{ color: "var(--mint)" }}>{out}</div>
-      <div className="text-[11px] text-[var(--ink-faint)] mt-0.5">{note}</div>
-    </div>
-  );
-}
-
-function QuickTools({ input, r }: { input: MortgageInput; r: MortgageResult }) {
-  const [finance, setFinance] = useState(1000000);
-  const [propVal, setPropVal] = useState(1500000);
-  const [reqFin, setReqFin] = useState(1200000);
-
-  const reqEmi = emiFor(finance, r.assessmentRate, r.maxTenorMonths);
-  const reqIncome = reqEmi / 0.5 + r.existingEmis;
-  const maxProp = r.ltvPct > 0 ? r.dbrMpbf / (r.ltvPct / 100) : 0;
-  const ltvCap = (propVal * r.ltvPct) / 100;
-  const funded = Math.min(reqFin, ltvCap);
-  const reqDp = Math.max(0, propVal - funded);
-
-  return (
-    <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-      <ToolCard
-        title="Required income"
-        out={fmtAED(reqIncome)}
-        note={`eligible monthly income needed · ${r.assessmentRate.toFixed(2)}% over ${tenorLabel(r.maxTenorMonths)} · incl. existing EMIs`}
-      >
-        <label className="label">Desired finance (AED)</label>
-        <NumIn value={finance} onChange={setFinance} step={50000} />
-      </ToolCard>
-      <ToolCard
-        title="Maximum property value"
-        out={fmtAED(maxProp)}
-        note={`income supports ${fmtAED(r.dbrMpbf)} at ${r.ltvPct}% LTV (${input.applicantType})`}
-      >
-        <label className="label">Based on current eligible income</label>
-        <div className="text-[12px] text-[var(--ink-dim)]">DBR MPBF {fmtAED(r.dbrMpbf)} ÷ {r.ltvPct}% LTV</div>
-      </ToolCard>
-      <ToolCard
-        title="Required down payment"
-        out={fmtAED(reqDp)}
-        note={reqFin > ltvCap ? `bank funds at most ${fmtAED(ltvCap)} at ${r.ltvPct}% LTV — rest is cash` : "requested finance fits inside the LTV cap"}
-      >
-        <div className="grid grid-cols-2 gap-2">
-          <div>
-            <label className="label">Property (AED)</label>
-            <NumIn value={propVal} onChange={setPropVal} step={50000} />
-          </div>
-          <div>
-            <label className="label">Finance (AED)</label>
-            <NumIn value={reqFin} onChange={setReqFin} step={50000} />
-          </div>
-        </div>
-      </ToolCard>
-    </div>
-  );
-}
-
-function ScenarioTable({ rows, base, delta }: {
-  rows: { label: string; dbr: number; residual: number; mpbf: number }[];
-  base: number;
-  delta: (v: number) => ReactNode;
-}) {
-  return (
-    <div className="overflow-x-auto">
-      <table className="tbl" style={{ minWidth: 560 }}>
-        <thead>
-          <tr>
-            <th>Scenario</th>
-            <th>Current DBR</th>
-            <th>Residual DBR</th>
-            <th>Final MPBF</th>
-            <th>Change</th>
-          </tr>
-        </thead>
-        <tbody>
-          {rows.map((row, i) => (
-            <tr key={row.label + i} style={{ cursor: "default" }} className={i === 0 ? "anim-fade-in" : ""}>
-              <td className={i === 0 ? "font-semibold" : ""}>{row.label}</td>
-              <td className="mono text-[12.5px]">{fmtPct(row.dbr)}</td>
-              <td className="mono text-[12.5px]" style={{ color: "var(--mint)" }}>{fmtPct(row.residual)}</td>
-              <td className="mono font-semibold">{fmtAED(row.mpbf)}</td>
-              <td className="mono text-[12.5px]">{i === 0 ? <span className="text-[var(--ink-faint)]">baseline</span> : delta(row.mpbf)}</td>
-            </tr>
-          ))}
-        </tbody>
-      </table>
-      <span className="hidden">{base}</span>
-    </div>
-  );
-}
-
 /* ---------- main view ---------- */
 
 type WhifTab = "liab" | "rate" | "tenor" | "income";
@@ -204,28 +106,13 @@ export default function Calculator() {
   const [manualRate, setManualRate] = useState("");
   const [manualTenor, setManualTenor] = useState("");
   const [extraIncome, setExtraIncome] = useState("");
-  const [clientMode, setClientMode] = useState<"trial" | "existing">("trial");
-  const [existingCaseId, setExistingCaseId] = useState<number | null>(null);
   const resultsRef = useRef<HTMLDivElement>(null);
   const scrollToResults = () => resultsRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
 
   const up = (patch: Partial<MortgageInput>) => setInput((p) => ({ ...p, ...patch }));
 
-  const loadExistingCase = (id: number) => {
-    const c = db.cases.find((x) => x.id === id);
-    if (!c) return;
-    setInput((p) => ({
-      ...p,
-      name: c.customer,
-      whatsapp: c.whatsapp || p.whatsapp,
-      requested: c.loanAmount > 0 ? c.loanAmount : p.requested,
-    }));
-    toast("info", `Loaded ${c.customer} from ${c.caseNumber}. This stays a trial — nothing is written back to the case.`);
-  };
   const r = useMemo(() => computeMortgage(input), [input]);
   const mpbfDisplay = useCountUp(r.finalMpbf, 550);
-
-  const sourcePool = input.employment === "Self-Employed" ? SE_SOURCES : SALARIED_SOURCES;
 
   const setEmployment = (emp: string) => {
     const employment = emp === "Self-Employed" ? ("Self-Employed" as const) : ("Salaried" as const);
@@ -241,28 +128,16 @@ export default function Calculator() {
     setInput((p) => ({ ...p, incomes: p.incomes.map((x) => (x.id === id ? { ...x, ...patch } : x)) }));
   const patchLiab = (id: string, patch: Partial<LiabRow>) =>
     setInput((p) => ({ ...p, liabilities: p.liabilities.map((x) => (x.id === id ? { ...x, ...patch } : x)) }));
-
-  /* ---- co-borrower (DBR only, never written to a case) ---- */
   const patchCoIncome = (id: string, patch: Partial<IncomeRow>) =>
-    setInput((p) => ({
-      ...p,
-      coBorrower: p.coBorrower
-        ? { ...p.coBorrower, incomes: p.coBorrower.incomes.map((x) => (x.id === id ? { ...x, ...patch } : x)) }
-        : p.coBorrower,
-    }));
+    setInput((p) => ({ ...p, coBorrower: p.coBorrower ? { ...p.coBorrower, incomes: p.coBorrower.incomes.map((x) => (x.id === id ? { ...x, ...patch } : x)) } : p.coBorrower }));
   const patchCoLiab = (id: string, patch: Partial<LiabRow>) =>
-    setInput((p) => ({
-      ...p,
-      coBorrower: p.coBorrower
-        ? { ...p.coBorrower, liabilities: p.coBorrower.liabilities.map((x) => (x.id === id ? { ...x, ...patch } : x)) }
-        : p.coBorrower,
-    }));
+    setInput((p) => ({ ...p, coBorrower: p.coBorrower ? { ...p.coBorrower, liabilities: p.coBorrower.liabilities.map((x) => (x.id === id ? { ...x, ...patch } : x)) } : p.coBorrower }));
 
   const defaultLtv = defaultLtvPct(input.applicantType);
   const isCustomLtv = input.customLtv.trim() !== "" && !Number.isNaN(parseFloat(input.customLtv));
+  const sourcePool = input.employment === "Self-Employed" ? SE_SOURCES : SALARIED_SOURCES;
 
   /* ---------------- scenarios ---------------- */
-
   const cards = input.liabilities.filter((l) => l.type === "Credit Card");
 
   const liabScenarios = useMemo(() => {
@@ -321,20 +196,68 @@ export default function Calculator() {
     return <span style={{ color: d > 0 ? "var(--mint)" : "var(--coral)" }}>{d > 0 ? "+" : ""}{fmtAED(d)}</span>;
   };
 
-  /* ---------------- actions ---------------- */
+  const buildScenarioTablesFor = (src: MortgageInput, res: MortgageResult): PdfScenarioTable[] => {
+    const run = (list: { label: string; input: MortgageInput }[]) =>
+      list.map((s) => {
+        const sr = computeMortgage(s.input);
+        return { label: s.label, dbr: sr.currentDbr, residual: sr.residualDbr, mpbf: sr.finalMpbf };
+      });
+    const base = { label: "Current (baseline)", dbr: res.currentDbr, residual: res.residualDbr, mpbf: res.finalMpbf };
+    const fmtRow = (x: { label: string; dbr: number; residual: number; mpbf: number }) => {
+      const d = x.mpbf - res.finalMpbf;
+      return [x.label, fmtPct(x.dbr), fmtPct(x.residual), fmtAED(x.mpbf), Math.abs(d) < 1 ? "—" : `${d > 0 ? "+" : ""}${fmtAED(d)}`];
+    };
+    const liabList = (() => {
+      const rows: { label: string; input: MortgageInput }[] = [];
+      const cs = src.liabilities.filter((x) => x.type === "Credit Card");
+      if (cs.length) {
+        rows.push({ label: "Credit cards −25%", input: scenarioCardsPct(src, 0.75) });
+        rows.push({ label: "Credit cards −50%", input: scenarioCardsPct(src, 0.5) });
+        rows.push({ label: "Credit cards removed", input: scenarioRemoveCards(src) });
+      }
+      for (const l of src.liabilities.filter((x) => x.type !== "Credit Card"))
+        rows.push({ label: `Remove ${l.name || l.type}`, input: scenarioRemoveLiab(src, l.id) });
+      return rows;
+    })();
+    const rateList = [1, 2, 3].map((n) => ({ label: `Stress +${n}%`, input: scenarioRate(src, src.actualRate + src.loadFactor + n) }));
+    const tenorList = [15, 20, 25].map((y) => ({ label: `${y} years`, input: scenarioTenor(src, y * 12) }));
+    const incomeList = src.incomes.flatMap((row) => [
+      { label: `Remove ${row.source}`, input: scenarioIncomeRemove(src, row.id) },
+      { label: `${row.source} −25%`, input: scenarioIncomePct(src, row.id, 0.75) },
+    ]);
+    const head = ["Scenario", "Current DBR", "Residual DBR", "MPBF", "Change"];
+    return [
+      liabList.length ? { title: "Liability scenarios", head, body: [base, ...run(liabList)].map(fmtRow) } : null,
+      { title: "Rate scenarios", head, body: [base, ...run(rateList)].map(fmtRow) },
+      { title: "Tenor scenarios", head, body: [base, ...run(tenorList)].map(fmtRow) },
+      incomeList.length ? { title: "Income scenarios", head, body: [base, ...run(incomeList)].map(fmtRow) } : null,
+    ].filter(Boolean) as PdfScenarioTable[];
+  };
 
+  const bestObservation = (): string => {
+    const all = [...liabScenarios, ...incomeScenarios]
+      .map((s) => ({ label: s.label, d: computeMortgage(s.input).finalMpbf - r.finalMpbf }))
+      .filter((c) => c.d > 5000)
+      .sort((a, b) => b.d - a.d)[0];
+    return all
+      ? `Strongest lever: ${all.label} — unlocking ${fmtAED(all.d)} of additional MPBF.`
+      : `No scenario improves the baseline ${fmtAED(r.finalMpbf)} — the binding constraint is ${r.limitedBy.toLowerCase()}.`;
+  };
+
+  /* ---------------- actions ---------------- */
   const summaryFor = () => ({
     income: r.eligibleIncome, emi: r.existingEmis, final: r.finalMpbf,
     rate: r.assessmentRate, tenorMonths: r.maxTenorMonths, ltv: r.actualLtv, eligible: r.finalMpbf > 0,
   });
 
+  const saveCheck = (): number => {
+    const id = saveMortgageCheck(input.name || "Unnamed applicant", input.whatsapp, JSON.stringify({ v: 1, input }), summaryFor());
+    setSavedId(id);
+    return id;
+  };
+
   const onSave = () => {
-    saveMortgageCheck(
-      input.name || "Unnamed applicant",
-      input.whatsapp,
-      JSON.stringify({ v: 1, input }),
-      summaryFor()
-    );
+    saveCheck();
     toast("success", "Check saved to the audit trail — no case was created.");
   };
 
@@ -360,135 +283,39 @@ export default function Calculator() {
     }
   };
 
-  const onOpenCase = () => setConfirmCase(true);
-
-  /* scenario builders that work for any saved input (audit-trail reports) */
-  const liabScenariosOf = (src: MortgageInput) => {
-    const rows: { label: string; input: MortgageInput }[] = [];
-    const c2 = src.liabilities.filter((x) => x.type === "Credit Card");
-    if (c2.length) {
-      rows.push({ label: "Credit cards −25%", input: scenarioCardsPct(src, 0.75) });
-      rows.push({ label: "Credit cards −50%", input: scenarioCardsPct(src, 0.5) });
-      rows.push({ label: "Credit cards removed", input: scenarioRemoveCards(src) });
-    }
-    for (const l of src.liabilities.filter((x) => x.type !== "Credit Card"))
-      rows.push({ label: `Remove ${l.name || l.type}`, input: scenarioRemoveLiab(src, l.id) });
-    return rows;
-  };
-  const incomeScenariosOf = (src: MortgageInput) => {
-    const rows: { label: string; input: MortgageInput }[] = [];
-    for (const row of src.incomes) {
-      rows.push({ label: `Remove ${row.source}`, input: scenarioIncomeRemove(src, row.id) });
-      rows.push({ label: `${row.source} −25%`, input: scenarioIncomePct(src, row.id, 0.75) });
-    }
-    return rows;
+  const openReport = () => {
+    setPreview({
+      input,
+      res: r,
+      tables: buildScenarioTablesFor(input, r),
+      by: session?.name ?? "HFMC",
+      obs: bestObservation(),
+    });
   };
 
-  const buildScenarioTablesFor = (src: MortgageInput, sr: MortgageResult): PdfScenarioTable[] => {
-    const liab = runScenarios(liabScenariosOf(src));
-    const rate = [1, 2, 3].map((n) => ({ label: `Stress +${n}%`, input: scenarioRate(src, sr.assessmentRate + n) }));
-    const tenor = [15, 20, 25].map((y) => ({ label: `${y} years`, input: scenarioTenor(src, y * 12) }));
-    const income = runScenarios(incomeScenariosOf(src));
-    const d = (v: number) => {
-      const dd = v - sr.finalMpbf;
-      return Math.abs(dd) < 1 ? "—" : `${dd > 0 ? "+" : "−"}${fmtAED(Math.abs(dd))}`;
-    };
-    return [
-      {
-        title: "Liability scenarios",
-        head: ["Scenario", "Current DBR", "Residual DBR", "MPBF", "Change"],
-        body: [{ label: "Baseline", dbr: sr.currentDbr, residual: sr.residualDbr, mpbf: sr.finalMpbf }, ...liab].map((x) => [
-          x.label, fmtPct(x.dbr), fmtPct(x.residual), fmtAED(x.mpbf), x.label === "Baseline" ? "—" : d(x.mpbf),
-        ]),
-      },
-      {
-        title: "Rate scenarios",
-        head: ["Scenario", "Assessment rate", "MPBF", "Change"],
-        body: [{ label: `Baseline · ${fmtPct(sr.assessmentRate)}`, rate: sr.assessmentRate, mpbf: sr.finalMpbf }, ...runScenarios(rate)].map((x) => [
-          x.label, fmtPct(x.rate), fmtAED(x.mpbf), x.label.startsWith("Baseline") ? "—" : d(x.mpbf),
-        ]),
-      },
-      {
-        title: "Tenor scenarios",
-        head: ["Scenario", "Tenor", "MPBF", "Change"],
-        body: [{ label: `Baseline · ${tenorLabel(sr.maxTenorMonths)}`, tenor: sr.maxTenorMonths, mpbf: sr.finalMpbf }, ...runScenarios(tenor)].map((x) => [
-          x.label, tenorLabel(x.tenor), fmtAED(x.mpbf), x.label.startsWith("Baseline") ? "—" : d(x.mpbf),
-        ]),
-      },
-      {
-        title: "Income scenarios",
-        head: ["Scenario", "Eligible income", "MPBF", "Change"],
-        body: [{ label: "Baseline", extra: sr.eligibleIncome, mpbf: sr.finalMpbf }, ...income].map((x) => [
-          x.label, fmtAED(x.extra), fmtAED(x.mpbf), x.label === "Baseline" ? "—" : d(x.mpbf),
-        ]),
-      },
-    ];
-  };
-
-  const savePdf = () => {
-    const tables = buildScenarioTablesFor(input, r);
-    const liab = runScenarios(liabScenarios);
-    const income = runScenarios(incomeScenarios);
-    const best = [...liab, ...income]
-      .map((s) => ({ label: s.label, d: s.mpbf - r.finalMpbf, dbr: s.dbr }))
-      .filter((c) => c.d > 5000)
-      .sort((a, b) => b.d - a.d)[0];
-    const obs = best
-      ? `Strongest lever: ${best.label} — DBR moves ${fmtPct(r.currentDbr)} → ${fmtPct(best.dbr)}, unlocking ${fmtAED(best.d)} of additional MPBF.`
-      : `No scenario improves the baseline ${fmtAED(r.finalMpbf)} — the binding constraint is ${r.limitedBy.toLowerCase()}.`;
-    generateMortgagePdf(input, r, tables, session?.name ?? "HFMC", obs);
-    toast("success", "PDF downloaded.");
-  };
-
-  const checks = db.affordabilityChecks.filter((k) => true).sort((a, b) => b.id - a.id);
-
-  /* ---------------- render ---------------- */
+  const checks = db.affordabilityChecks;
 
   return (
     <div className="space-y-5">
-      {/* client chooser */}
-      <div className="card p-4 anim-fade-up flex flex-wrap items-center gap-3">
-        <div className="flex rounded-lg overflow-hidden border" style={{ borderColor: "var(--line)" }}>
-          {(["trial", "existing"] as const).map((m) => (
-            <button
-              key={m}
-              className="px-3.5 py-2 text-[12.5px] font-disp font-semibold transition-all"
-              style={clientMode === m ? { background: "var(--amber-tint)", color: "var(--amber)" } : { color: "var(--ink-faint)", background: "transparent" }}
-              onClick={() => setClientMode(m)}
-            >
-              {m === "trial" ? "New client · trial" : "Existing client"}
-            </button>
-          ))}
+      <div className="flex flex-wrap items-end justify-between gap-3">
+        <div>
+          <h1 className="font-disp font-bold text-[24px] tracking-tight m-0 flex items-center gap-2.5">
+            <ICalc size={22} className="text-[var(--amber)]" /> Mortgage Calculator
+          </h1>
+          <p className="text-[13px] text-[var(--ink-dim)] mt-0.5 mb-0">
+            Preliminary MPBF eligibility — the answer a VRM needs before a case is even opened.
+          </p>
         </div>
-        {clientMode === "trial" ? (
-          <p className="text-[12px] text-[var(--ink-faint)] m-0">Pure what-if — nothing touches the pipeline until you explicitly open a case.</p>
-        ) : (
-          <select
-            className="select"
-            style={{ width: 280 }}
-            value={existingCaseId ?? ""}
-            onChange={(e) => {
-              const id = e.target.value ? parseInt(e.target.value, 10) : null;
-              setExistingCaseId(id);
-              if (id != null) loadExistingCase(id);
-            }}
-          >
-            <option value="">Pick a case to prefill…</option>
-            {db.cases.filter((c) => c.caseStatus === "Active").map((c) => (
-              <option key={c.id} value={c.id}>{c.caseNumber} · {c.customer}</option>
-            ))}
-          </select>
-        )}
-        <span className="mono text-[11px] text-[var(--ink-faint)] ml-auto hidden md:inline">CBUAE-style · 50% DBR cap</span>
+        <span className="mono text-[11px] text-[var(--ink-faint)] hidden md:inline">CBUAE-style · 50% DBR cap</span>
       </div>
 
       <div className="grid grid-cols-1 xl:grid-cols-[1fr_360px] gap-5 items-start">
         {/* ================= inputs ================= */}
-        <div className="space-y-5">
+        <div className="space-y-5 order-2 xl:order-1">
           <Section num="01" title="Applicant" hint="age drives the tenor">
-            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
               <div>
-                <label className="label">Applicant name</label>
+                <label className="label">Name</label>
                 <input className="input" value={input.name} onChange={(e) => up({ name: e.target.value })} placeholder="e.g. Mohammed Al Mansoori" />
               </div>
               <div>
@@ -575,23 +402,14 @@ export default function Calculator() {
 
             <p className="text-[12px] text-[var(--ink-dim)] mt-3 mb-0 rounded-lg px-3 py-2" style={{ background: "var(--tint)" }}>
               Calculation basis: <strong className="mono">{fmtAED(r.calcBasis)}</strong>
-              <span className="text-[var(--ink-faint)]"> — {r.basisLabel}. LTV {r.ltvPct}% ({input.ltvPctChoice != null || isCustomLtv ? "selected" : "default"}) for {input.applicantType}.</span>
+              <span className="text-[var(--ink-faint)]"> — {r.basisLabel}. LTV {r.ltvPct}% ({input.ltvPctChoice != null ? "selected" : isCustomLtv ? "custom" : "default"}) for {input.applicantType}.</span>
             </p>
           </Section>
 
           <Section num="03" title="Income" hint={input.employment === "Self-Employed" ? "self-employed basis" : "all sources → monthly equivalent"}>
-            <div className="grid grid-cols-[1fr_76px_88px_60px_80px_24px] gap-2 mb-1 sm:hidden">
-              <span className="text-[10px] uppercase tracking-[0.08em] text-[var(--ink-faint)] font-disp font-semibold">Source</span>
-              <span className="text-[10px] uppercase tracking-[0.08em] text-[var(--ink-faint)] font-disp font-semibold">Freq</span>
-              <span className="text-[10px] uppercase tracking-[0.08em] text-[var(--ink-faint)] font-disp font-semibold">Amount</span>
-              <span className="text-[10px] uppercase tracking-[0.08em] text-[var(--ink-faint)] font-disp font-semibold">%</span>
-              <span className="text-[10px] uppercase tracking-[0.08em] text-[var(--ink-faint)] font-disp font-semibold text-right">Monthly</span>
-              <span />
-            </div>
-            <div className="overflow-x-auto scroll-slim -mx-1 px-1">
-            <div className="min-w-[600px] space-y-2">
+            <div className="space-y-2">
               {input.incomes.map((row) => (
-                <div key={row.id} className="grid grid-cols-[1fr_92px_110px_76px_100px_30px] gap-2 items-center anim-fade-in">
+                <div key={row.id} className="grid grid-cols-2 sm:grid-cols-[1fr_92px_110px_76px_100px_30px] gap-2 items-center anim-fade-in">
                   <select className="select" value={row.source} onChange={(e) => patchIncome(row.id, { source: e.target.value })}>
                     {sourcePool.map((s) => <option key={s}>{s}</option>)}
                   </select>
@@ -601,13 +419,12 @@ export default function Calculator() {
                   <NumIn value={row.amount} onChange={(n) => patchIncome(row.id, { amount: n })} step={500} />
                   <NumIn value={row.eligiblePct} onChange={(n) => patchIncome(row.id, { eligiblePct: Math.min(100, Math.max(0, n)) })} step={5} min={0} />
                   <span className="mono text-[12.5px] text-right" style={{ color: "var(--mint)" }}>{fmtAED(incomeMonthly(row))}</span>
-                  <button className="text-[var(--ink-faint)] hover:text-[var(--coral)] transition-colors justify-self-center" title="Remove row"
+                  <button className="text-[var(--ink-faint)] hover:text-[var(--coral)] transition-colors justify-self-center cursor-pointer" title="Remove row"
                     onClick={() => setInput((p) => ({ ...p, incomes: p.incomes.filter((x) => x.id !== row.id) }))}>
                     <IX size={14} />
                   </button>
                 </div>
               ))}
-            </div>
             </div>
             <div className="flex items-center justify-between mt-3 flex-wrap gap-2">
               <button className="btn btn-ghost btn-sm" onClick={() => setInput((p) => ({ ...p, incomes: [...p.incomes, newIncomeRow(sourcePool[Math.min(p.incomes.length, sourcePool.length - 1)], input.employment)] }))}>
@@ -640,32 +457,20 @@ export default function Calculator() {
                     <span className="text-[11px] uppercase tracking-[0.12em] font-disp font-semibold" style={{ color: "var(--sky)" }}>
                       Co-borrower · combined for DBR · age limits the tenor
                     </span>
-                    <button
-                      className="text-[var(--ink-faint)] hover:text-[var(--coral)] transition-colors"
-                      title="Remove co-borrower"
-                      onClick={() => up({ coBorrower: null })}
-                    >
+                    <button className="text-[var(--ink-faint)] hover:text-[var(--coral)] transition-colors cursor-pointer" title="Remove co-borrower" onClick={() => up({ coBorrower: null })}>
                       <ITrash size={14} />
                     </button>
                   </div>
                   <div className="grid grid-cols-1 sm:grid-cols-[1fr_170px_110px] gap-2 mb-2">
                     <div>
                       <label className="label">Co-borrower name</label>
-                      <input
-                        className="input"
-                        placeholder="Shown on the report only"
-                        value={input.coBorrower.name}
-                        onChange={(e) => up({ coBorrower: { ...input.coBorrower!, name: e.target.value } })}
-                      />
+                      <input className="input" placeholder="Shown on the report only" value={input.coBorrower.name}
+                        onChange={(e) => up({ coBorrower: { ...input.coBorrower!, name: e.target.value } })} />
                     </div>
                     <div>
                       <label className="label">Date of birth</label>
-                      <input
-                        className="input mono"
-                        type="date"
-                        value={input.coBorrower.dob}
-                        onChange={(e) => e.target.value && up({ coBorrower: { ...input.coBorrower!, dob: e.target.value } })}
-                      />
+                      <input className="input mono" type="date" value={input.coBorrower.dob}
+                        onChange={(e) => e.target.value && up({ coBorrower: { ...input.coBorrower!, dob: e.target.value } })} />
                     </div>
                     <div>
                       <label className="label">Age now</label>
@@ -674,12 +479,11 @@ export default function Calculator() {
                       </div>
                     </div>
                   </div>
-                  <div className="overflow-x-auto scroll-slim -mx-1 px-1">
-                  <div className="min-w-[600px] space-y-2">
+                  <div className="space-y-2">
                     {input.coBorrower.incomes.map((row) => (
-                      <div key={row.id} className="grid grid-cols-[1fr_92px_110px_76px_100px_30px] gap-2 items-center">
+                      <div key={row.id} className="grid grid-cols-2 sm:grid-cols-[1fr_92px_110px_76px_100px_30px] gap-2 items-center">
                         <select className="select" value={row.source} onChange={(e) => patchCoIncome(row.id, { source: e.target.value })}>
-                          {[...sourcePool, ...CO_SOURCES].filter((s, i, a) => a.indexOf(s) === i).map((s) => <option key={s}>{s}</option>)}
+                          {sourcePool.map((s) => <option key={s}>{s}</option>)}
                         </select>
                         <select className="select" value={row.frequency} onChange={(e) => patchCoIncome(row.id, { frequency: e.target.value as Frequency })}>
                           {FREQUENCIES.map((f) => <option key={f}>{f}</option>)}
@@ -687,36 +491,16 @@ export default function Calculator() {
                         <NumIn value={row.amount} onChange={(n) => patchCoIncome(row.id, { amount: n })} step={500} />
                         <NumIn value={row.eligiblePct} onChange={(n) => patchCoIncome(row.id, { eligiblePct: Math.min(100, Math.max(0, n)) })} step={5} min={0} />
                         <span className="mono text-[12.5px] text-right" style={{ color: "var(--sky)" }}>{fmtAED(incomeMonthly(row))}</span>
-                        <button
-                          className="text-[var(--ink-faint)] hover:text-[var(--coral)] transition-colors justify-self-center"
-                          title="Remove row"
-                          onClick={() =>
-                            setInput((p) => ({
-                              ...p,
-                              coBorrower: p.coBorrower
-                                ? { ...p.coBorrower, incomes: p.coBorrower.incomes.filter((x) => x.id !== row.id) }
-                                : p.coBorrower,
-                            }))
-                          }
-                        >
+                        <button className="text-[var(--ink-faint)] hover:text-[var(--coral)] transition-colors justify-self-center cursor-pointer" title="Remove row"
+                          onClick={() => setInput((p) => ({ ...p, coBorrower: p.coBorrower ? { ...p.coBorrower, incomes: p.coBorrower.incomes.filter((x) => x.id !== row.id) } : p.coBorrower }))}>
                           <IX size={14} />
                         </button>
                       </div>
                     ))}
                   </div>
-                  </div>
                   <div className="flex items-center justify-between mt-2.5 flex-wrap gap-2">
-                    <button
-                      className="btn btn-ghost btn-sm"
-                      onClick={() =>
-                        setInput((p) => ({
-                          ...p,
-                          coBorrower: p.coBorrower
-                            ? { ...p.coBorrower, incomes: [...p.coBorrower.incomes, newIncomeRow(sourcePool[Math.min(p.coBorrower.incomes.length, sourcePool.length - 1)], input.employment)] }
-                            : p.coBorrower,
-                        }))
-                      }
-                    >
+                    <button className="btn btn-ghost btn-sm"
+                      onClick={() => setInput((p) => ({ ...p, coBorrower: p.coBorrower ? { ...p.coBorrower, incomes: [...p.coBorrower.incomes, newIncomeRow(sourcePool[Math.min(p.coBorrower.incomes.length, sourcePool.length - 1)], input.employment)] } : p.coBorrower }))}>
                       <IPlus size={13} /> Add co-borrower income
                     </button>
                     <div className="text-[12.5px]">
@@ -724,19 +508,15 @@ export default function Calculator() {
                     </div>
                   </div>
 
-                  {/* co-borrower liabilities — combined with the applicant's for DBR */}
                   <div className="mt-3 pt-3" style={{ borderTop: "1px dashed color-mix(in srgb, var(--sky) 30%, transparent)" }}>
-                    <div className="text-[10.5px] uppercase tracking-[0.1em] font-disp font-semibold mb-2" style={{ color: "var(--sky)" }}>
-                      Their liabilities
-                    </div>
+                    <div className="text-[10.5px] uppercase tracking-[0.1em] font-disp font-semibold mb-2" style={{ color: "var(--sky)" }}>Their liabilities</div>
                     {input.coBorrower.liabilities.length === 0 && (
                       <p className="text-[12px] text-[var(--ink-faint)] m-0 mb-2">No liabilities declared for the co-borrower.</p>
                     )}
-                    <div className="overflow-x-auto scroll-slim -mx-1 px-1">
-                    <div className="min-w-[560px] space-y-2">
+                    <div className="space-y-2">
                       {input.coBorrower.liabilities.map((l) => (
                         <div key={l.id} className="rounded-lg p-2.5 anim-fade-in" style={{ background: "color-mix(in srgb, var(--sky) 5%, transparent)", border: "1px solid color-mix(in srgb, var(--sky) 18%, transparent)" }}>
-                          <div className="grid grid-cols-[1fr_130px_130px] gap-2">
+                          <div className="grid grid-cols-1 sm:grid-cols-[1fr_130px_130px] gap-2">
                             <input className="input" value={l.name} onChange={(e) => patchCoLiab(l.id, { name: e.target.value })} placeholder="Liability name" />
                             <select className="select" value={l.type} onChange={(e) => patchCoLiab(l.id, { type: e.target.value as LiabRow["type"] })}>
                               {LIAB_TYPES.map((t) => <option key={t}>{t}</option>)}
@@ -745,7 +525,7 @@ export default function Calculator() {
                               {LIAB_METHODS.map((m) => <option key={m}>{m}</option>)}
                             </select>
                           </div>
-                          <div className="grid grid-cols-[1fr_1fr_110px_30px] gap-2 mt-2 items-center">
+                          <div className="grid grid-cols-2 sm:grid-cols-[1fr_1fr_110px_30px] gap-2 mt-2 items-center">
                             <div>
                               <label className="label" style={{ marginBottom: 3 }}>{l.type === "Credit Card" || l.type === "Overdraft" ? "Limit / outstanding" : "Outstanding"}</label>
                               <NumIn value={l.limitOrOutstanding} onChange={(n) => patchCoLiab(l.id, { limitOrOutstanding: n })} step={1000} />
@@ -758,28 +538,17 @@ export default function Calculator() {
                               <div className="text-[10px] uppercase tracking-[0.08em] text-[var(--ink-faint)] font-disp font-semibold">Assessed</div>
                               <div className="mono text-[13px]" style={{ color: "var(--coral)" }}>{fmtAED(liabilityEmi(l))}</div>
                             </div>
-                            <button className="text-[var(--ink-faint)] hover:text-[var(--coral)] transition-colors justify-self-center" title="Remove liability"
-                              onClick={() =>
-                                setInput((p) => ({
-                                  ...p,
-                                  coBorrower: p.coBorrower ? { ...p.coBorrower, liabilities: p.coBorrower.liabilities.filter((x) => x.id !== l.id) } : p.coBorrower,
-                                }))
-                              }>
+                            <button className="text-[var(--ink-faint)] hover:text-[var(--coral)] transition-colors justify-self-center cursor-pointer" title="Remove liability"
+                              onClick={() => setInput((p) => ({ ...p, coBorrower: p.coBorrower ? { ...p.coBorrower, liabilities: p.coBorrower.liabilities.filter((x) => x.id !== l.id) } : p.coBorrower }))}>
                               <ITrash size={14} />
                             </button>
                           </div>
                         </div>
                       ))}
                     </div>
-                    </div>
                     <div className="flex items-center justify-between mt-2.5 flex-wrap gap-2">
                       <button className="btn btn-ghost btn-sm"
-                        onClick={() =>
-                          setInput((p) => ({
-                            ...p,
-                            coBorrower: p.coBorrower ? { ...p.coBorrower, liabilities: [...p.coBorrower.liabilities, newLiabRow()] } : p.coBorrower,
-                          }))
-                        }>
+                        onClick={() => setInput((p) => ({ ...p, coBorrower: p.coBorrower ? { ...p.coBorrower, liabilities: [...p.coBorrower.liabilities, newLiabRow()] } : p.coBorrower }))}>
                         <IPlus size={13} /> Add co-borrower liability
                       </button>
                       <div className="text-[12.5px]">
@@ -800,11 +569,10 @@ export default function Calculator() {
             {input.liabilities.length === 0 && (
               <p className="text-[12.5px] text-[var(--ink-faint)] m-0">No liabilities declared — the full DBR headroom is available.</p>
             )}
-            <div className="overflow-x-auto scroll-slim -mx-1 px-1">
-            <div className="min-w-[560px] space-y-2">
+            <div className="space-y-2">
               {input.liabilities.map((l) => (
                 <div key={l.id} className="rounded-lg p-2.5 anim-fade-in" style={{ background: "var(--tint)", border: "1px solid var(--line-soft)" }}>
-                  <div className="grid grid-cols-[1fr_130px_130px] gap-2">
+                  <div className="grid grid-cols-1 sm:grid-cols-[1fr_130px_130px] gap-2">
                     <input className="input" value={l.name} onChange={(e) => patchLiab(l.id, { name: e.target.value })} placeholder="Liability name" />
                     <select className="select" value={l.type} onChange={(e) => patchLiab(l.id, { type: e.target.value as LiabRow["type"] })}>
                       {LIAB_TYPES.map((t) => <option key={t}>{t}</option>)}
@@ -813,7 +581,7 @@ export default function Calculator() {
                       {LIAB_METHODS.map((m) => <option key={m}>{m}</option>)}
                     </select>
                   </div>
-                  <div className="grid grid-cols-[1fr_1fr_110px_30px] gap-2 mt-2 items-center">
+                  <div className="grid grid-cols-2 sm:grid-cols-[1fr_1fr_110px_30px] gap-2 mt-2 items-center">
                     <div>
                       <label className="label" style={{ marginBottom: 3 }}>{l.type === "Credit Card" || l.type === "Overdraft" ? "Limit / outstanding" : "Outstanding"}</label>
                       <NumIn value={l.limitOrOutstanding} onChange={(n) => patchLiab(l.id, { limitOrOutstanding: n })} step={1000} />
@@ -826,14 +594,13 @@ export default function Calculator() {
                       <div className="text-[10px] uppercase tracking-[0.08em] text-[var(--ink-faint)] font-disp font-semibold">Assessed</div>
                       <div className="mono text-[13px]" style={{ color: "var(--coral)" }}>{fmtAED(liabilityEmi(l))}</div>
                     </div>
-                    <button className="text-[var(--ink-faint)] hover:text-[var(--coral)] transition-colors justify-self-center" title="Remove liability"
+                    <button className="text-[var(--ink-faint)] hover:text-[var(--coral)] transition-colors justify-self-center cursor-pointer" title="Remove liability"
                       onClick={() => setInput((p) => ({ ...p, liabilities: p.liabilities.filter((x) => x.id !== l.id) }))}>
                       <ITrash size={14} />
                     </button>
                   </div>
                 </div>
               ))}
-            </div>
             </div>
             <div className="flex items-center justify-between mt-3 flex-wrap gap-2">
               <button className="btn btn-ghost btn-sm" onClick={() => setInput((p) => ({ ...p, liabilities: [...p.liabilities, newLiabRow()] }))}>
@@ -876,7 +643,7 @@ export default function Calculator() {
               <Stat label="Assessment rate" value={fmtPct(r.assessmentRate)} tone="var(--amber)" />
               <div>
                 <label className="label">Income multiplier cap</label>
-                <select className="select" style={{ width: 130 }} value={input.multiplierX} onChange={(e) => up({ multiplierX: Number(e.target.value) })}>
+                <select className="select !w-auto" style={{ minWidth: 120 }} value={input.multiplierX} onChange={(e) => up({ multiplierX: Number(e.target.value) })}>
                   <option value={0}>Off</option>
                   {[5, 6, 7, 8].map((x) => <option key={x} value={x}>{x}× annual</option>)}
                 </select>
@@ -884,24 +651,14 @@ export default function Calculator() {
               <Stat label="Tenor used" value={tenorLabel(r.maxTenorMonths)} />
             </div>
           </Section>
-
-          {/* quick tools */}
-          <div className="anim-fade-up">
-            <div className="flex items-baseline gap-3 mb-2.5 px-1">
-              <span className="mono text-[11px] font-semibold px-1.5 py-0.5 rounded" style={{ background: "color-mix(in srgb, var(--sky) 14%, transparent)", color: "var(--sky)" }}>T</span>
-              <h2 className="font-disp font-semibold text-[15px] m-0">Quick tools</h2>
-              <span className="text-[11.5px] text-[var(--ink-faint)]">inverse answers using the assessment above</span>
-            </div>
-            <QuickTools input={input} r={r} />
-          </div>
         </div>
 
         {/* ================= result rail ================= */}
-        <div ref={resultsRef} className="space-y-4 xl:sticky xl:top-[86px] scroll-mt-20">
+        <div ref={resultsRef} className="space-y-4 xl:sticky xl:top-[86px] scroll-mt-20 order-1 xl:order-2">
           <div className="card p-5 anim-fade-up" style={{ borderColor: "var(--amber-line)", background: "linear-gradient(180deg, var(--amber-tint), var(--surface))", boxShadow: "var(--shadow)" }}>
             <div className="text-[10.5px] uppercase tracking-[0.14em] font-disp font-semibold" style={{ color: "var(--amber)" }}>Final MPBF</div>
             <div className="font-disp font-bold text-[38px] leading-[1.05] tracking-tight mt-1 tabular-nums">{fmtAED(mpbfDisplay)}</div>
-            <div className="flex items-center gap-2 mt-1.5">
+            <div className="flex items-center gap-2 mt-1.5 flex-wrap">
               <span className="text-[11.5px] text-[var(--ink-faint)]">limited by</span>
               <Chip tone={r.limitedBy === "DBR / Income" ? "coral" : r.limitedBy === "LTV" ? "sky" : "amber"}>{r.limitedBy}</Chip>
               {r.finalMpbf <= 0 && <Chip tone="coral">not eligible</Chip>}
@@ -913,64 +670,45 @@ export default function Calculator() {
                 <span>Debt burden</span><span>cap {fmtPct(r.maxDbr)}</span>
               </div>
               <div className="relative h-3 rounded-full overflow-hidden" style={{ background: "var(--track)" }}>
-                <div className="absolute inset-y-0 left-0 rounded-full transition-all duration-500" style={{ width: `${Math.min(100, (r.currentDbr / 60) * 100)}%`, background: r.currentDbr > 50 ? "var(--coral)" : "linear-gradient(90deg, var(--mint), var(--amber))" }} />
+                <div className="absolute inset-y-0 left-0 rounded-full" style={{ width: `${Math.min(r.currentDbr, 100)}%`, background: r.currentDbr > 45 ? "var(--coral)" : "var(--amber)", transition: "width 0.6s cubic-bezier(0.22,1,0.36,1)" }} />
+                <div className="absolute inset-y-0 rounded-full" style={{ left: `${Math.min(r.currentDbr, 100)}%`, width: `${Math.max(0, Math.min(r.residualDbr, 100 - r.currentDbr))}%`, background: "var(--mint)", opacity: 0.5, transition: "all 0.6s cubic-bezier(0.22,1,0.36,1)" }} />
               </div>
               <div className="flex justify-between text-[11px] mt-1.5">
-                <span className="text-[var(--ink-dim)]">current <strong className="mono">{fmtPct(r.currentDbr)}</strong></span>
-                <span style={{ color: "var(--mint)" }}>residual <strong className="mono">{fmtPct(r.residualDbr)}</strong></span>
+                <span>current <span className="mono font-semibold">{fmtPct(r.currentDbr)}</span></span>
+                <span>residual <span className="mono font-semibold" style={{ color: "var(--mint)" }}>{fmtPct(r.residualDbr)}</span></span>
               </div>
             </div>
 
-            <div className="grid grid-cols-2 gap-x-4 gap-y-3 mt-4 pt-4" style={{ borderTop: "1px dashed var(--line)" }}>
+            <div className="grid grid-cols-2 gap-3 mt-4 pt-4" style={{ borderTop: "1px dashed var(--line)" }}>
               <Stat label="DBR MPBF" value={fmtAED(r.dbrMpbf)} />
               <Stat label="LTV MPBF" value={fmtAED(r.ltvMpbf)} />
-              {r.multiplierCap != null && <Stat label="Multiplier cap" value={fmtAED(r.multiplierCap)} />}
-              <Stat label="Down payment" value={fmtAED(r.downPayment)} tone="var(--coral)" />
+              {r.multiplierCap != null && <Stat label="Income cap" value={fmtAED(r.multiplierCap)} />}
+              <Stat label="Down payment" value={fmtAED(r.downPayment)} />
               <Stat label="Actual LTV" value={fmtPct(r.actualLtv)} />
-              <Stat label="EMI @ actual rate" value={`${fmtAED(r.newEmi)}/mo`} />
-              <Stat label="DBR after mortgage" value={fmtPct(r.dbrAfter)} tone={r.dbrAfter > 50 ? "var(--coral)" : "var(--mint)"} />
-              <Stat label="Tenor" value={tenorLabel(r.maxTenorMonths)} />
+              <Stat label="Est. EMI" value={`${fmtAED(r.newEmi)}/mo`} tone="var(--sky)" />
             </div>
 
             <div className="flex flex-col gap-2 mt-4">
-              <button className="btn btn-primary justify-center" onClick={() => setPreview({
-                input, res: r,
-                tables: buildScenarioTablesFor(input, r),
-                by: session?.name ?? "HFMC",
-                obs: (() => {
-                  const liab = runScenarios(liabScenarios);
-                  const income = runScenarios(incomeScenarios);
-                  const best = [...liab, ...income]
-                    .map((s) => ({ label: s.label, d: s.mpbf - r.finalMpbf, dbr: s.dbr }))
-                    .filter((c) => c.d > 5000)
-                    .sort((a, b) => b.d - a.d)[0];
-                  return best
-                    ? `Strongest lever: ${best.label} — DBR moves ${fmtPct(r.currentDbr)} → ${fmtPct(best.dbr)}, unlocking ${fmtAED(best.d)} of additional MPBF.`
-                    : `No scenario improves the baseline ${fmtAED(r.finalMpbf)} — the binding constraint is ${r.limitedBy.toLowerCase()}.`;
-                })(),
-              })}>
-                <IEye size={15} /> View bank-facing report
-              </button>
-              <button className="btn btn-ghost justify-center" onClick={savePdf}>
+              <button className="btn btn-primary justify-center" onClick={openReport}><IEye size={15} /> View bank-facing report</button>
+              <button className="btn btn-ghost justify-center" onClick={() => generateMortgagePdf(input, r, buildScenarioTablesFor(input, r), session?.name ?? "HFMC", bestObservation())}>
                 <IDownload size={15} /> Download PDF
               </button>
               <div className="grid grid-cols-2 gap-2">
                 <button className="btn btn-mint justify-center" onClick={onSave}>Save check</button>
-                <button className="btn btn-ghost justify-center" onClick={onOpenCase}>Open case…</button>
+                <button className="btn btn-ghost justify-center" onClick={() => setConfirmCase(true)}>Open case</button>
               </div>
-              <p className="text-[10.5px] text-[var(--ink-faint)] text-center m-0">
-                Saving only stores the check for audit — a case is created only when you choose “Open case”.
-              </p>
-              {savedId && <p className="text-[11px] text-[var(--ink-faint)] text-center m-0">Saved as audit entry #{savedId}{input.name ? ` for ${input.name}` : ""}</p>}
+              <p className="text-[11px] text-[var(--ink-faint)] text-center m-0">Saving stores an audit check — no case is created.</p>
             </div>
           </div>
 
           {r.notes.length > 0 && (
             <div className="card p-4 anim-fade-up">
               <div className="text-[10.5px] uppercase tracking-[0.12em] font-disp font-semibold text-[var(--ink-faint)] mb-2">Notes</div>
-              <ul className="m-0 pl-4 space-y-1">
+              <ul className="space-y-1.5 m-0 p-0 list-none">
                 {r.notes.map((n, i) => (
-                  <li key={i} className="text-[12px] text-[var(--ink-dim)] leading-snug">{n}</li>
+                  <li key={i} className="text-[12px] text-[var(--ink-dim)] flex gap-2">
+                    <span style={{ color: "var(--amber)" }}>·</span> {n}
+                  </li>
                 ))}
               </ul>
             </div>
@@ -980,20 +718,15 @@ export default function Calculator() {
 
       {/* ================= what-if ================= */}
       <div className="card anim-fade-up">
-        <div className="px-4 py-3 border-b flex flex-wrap items-center gap-2" style={{ borderColor: "var(--line-soft)" }}>
+        <div className="px-4 py-3 border-b flex items-center gap-2 flex-wrap" style={{ borderColor: "var(--line-soft)" }}>
           <h3 className="font-disp font-semibold text-[13.5px] m-0">What-if analysis</h3>
-          <span className="text-[11px] text-[var(--ink-faint)] hidden sm:inline">what moves the number?</span>
+          <span className="text-[11px] text-[var(--ink-faint)] hidden sm:inline">what happens if we change one thing?</span>
           <div className="ml-auto flex gap-1.5 flex-wrap">
-            {([
-              { k: "liab" as const, l: "Liabilities" },
-              { k: "rate" as const, l: "Rate" },
-              { k: "tenor" as const, l: "Tenor" },
-              { k: "income" as const, l: "Income" },
-            ]).map((t) => (
-              <button key={t.k} className="chip transition-all"
-                style={whif === t.k ? { background: "var(--amber-tint)", borderColor: "var(--amber)", color: "var(--amber)" } : { background: "var(--bg2)", borderColor: "var(--line)", color: "var(--ink-faint)" }}
-                onClick={() => setWhif(t.k)}>
-                {t.l}
+            {([["liab", "Liabilities"], ["rate", "Rate"], ["tenor", "Tenor"], ["income", "Income"]] as [WhifTab, string][]).map(([k, l]) => (
+              <button key={k} className="chip transition-all"
+                style={whif === k ? { background: "var(--amber-tint)", borderColor: "var(--amber)", color: "var(--amber)" } : { background: "var(--bg2)", borderColor: "var(--line)", color: "var(--ink-faint)" }}
+                onClick={() => setWhif(k)}>
+                {l}
               </button>
             ))}
           </div>
@@ -1005,10 +738,10 @@ export default function Calculator() {
               <div className="flex flex-wrap gap-2 mb-3">
                 {cards.length > 0 && (
                   <>
-                    <select className="select" style={{ width: 190 }} value={cardId || cards[0].id} onChange={(e) => setCardId(e.target.value)}>
+                    <select className="select !w-auto" style={{ minWidth: 170 }} value={cardId || cards[0].id} onChange={(e) => setCardId(e.target.value)}>
                       {cards.map((c) => <option key={c.id} value={c.id}>{c.name || "Credit Card"} · {fmtAED(c.limitOrOutstanding)}</option>)}
                     </select>
-                    <input className="input mono" style={{ width: 170 }} type="number" min={0} step={1000} placeholder="new limit →" value={cardLimit} onChange={(e) => setCardLimit(e.target.value)} />
+                    <input className="input mono !w-auto" style={{ width: 150 }} type="number" min={0} step={1000} placeholder="new limit →" value={cardLimit} onChange={(e) => setCardLimit(e.target.value)} />
                   </>
                 )}
               </div>
@@ -1024,11 +757,9 @@ export default function Calculator() {
             <div>
               <div className="flex flex-wrap items-center gap-2 mb-3">
                 <span className="text-[12px] text-[var(--ink-faint)]">Manual assessment rate:</span>
-                <input className="input mono" style={{ width: 130 }} type="number" min={0} step={0.05} placeholder="e.g. 6.50" value={manualRate} onChange={(e) => setManualRate(e.target.value)} />
+                <input className="input mono !w-auto" style={{ width: 120 }} type="number" min={0} step={0.05} placeholder="e.g. 6.50" value={manualRate} onChange={(e) => setManualRate(e.target.value)} />
               </div>
-              <ScenarioTable
-                rows={[{ label: `Current · ${fmtPct(r.assessmentRate)}`, dbr: r.currentDbr, residual: r.residualDbr, mpbf: r.finalMpbf }, ...runScenarios(rateScenarios)]}
-                base={r.finalMpbf} delta={delta} />
+              <ScenarioTable rows={[{ label: `Current · ${fmtPct(r.assessmentRate)}`, dbr: r.currentDbr, residual: r.residualDbr, mpbf: r.finalMpbf }, ...runScenarios(rateScenarios)]} base={r.finalMpbf} delta={delta} />
             </div>
           )}
 
@@ -1036,11 +767,9 @@ export default function Calculator() {
             <div>
               <div className="flex flex-wrap items-center gap-2 mb-3">
                 <span className="text-[12px] text-[var(--ink-faint)]">Manual tenor (months):</span>
-                <input className="input mono" style={{ width: 130 }} type="number" min={12} step={12} placeholder="e.g. 178" value={manualTenor} onChange={(e) => setManualTenor(e.target.value)} />
+                <input className="input mono !w-auto" style={{ width: 120 }} type="number" min={12} step={12} placeholder="e.g. 178" value={manualTenor} onChange={(e) => setManualTenor(e.target.value)} />
               </div>
-              <ScenarioTable
-                rows={[{ label: `Current max · ${tenorLabel(r.maxTenorMonths)}`, dbr: r.currentDbr, residual: r.residualDbr, mpbf: r.finalMpbf }, ...runScenarios(tenorScenarios)]}
-                base={r.finalMpbf} delta={delta} />
+              <ScenarioTable rows={[{ label: `Current max · ${tenorLabel(r.maxTenorMonths)}`, dbr: r.currentDbr, residual: r.residualDbr, mpbf: r.finalMpbf }, ...runScenarios(tenorScenarios)]} base={r.finalMpbf} delta={delta} />
             </div>
           )}
 
@@ -1048,20 +777,20 @@ export default function Calculator() {
             <div>
               <div className="flex flex-wrap items-center gap-2 mb-3">
                 <span className="text-[12px] text-[var(--ink-faint)]">Hypothetical extra allowance (AED/mo):</span>
-                <input className="input mono" style={{ width: 150 }} type="number" min={0} step={500} placeholder="e.g. 3000" value={extraIncome} onChange={(e) => setExtraIncome(e.target.value)} />
+                <input className="input mono !w-auto" style={{ width: 140 }} type="number" min={0} step={500} placeholder="e.g. 3000" value={extraIncome} onChange={(e) => setExtraIncome(e.target.value)} />
               </div>
-              <ScenarioTable
-                rows={[{ label: "Current (baseline)", dbr: r.currentDbr, residual: r.residualDbr, mpbf: r.finalMpbf }, ...runScenarios(incomeScenarios)]}
-                base={r.finalMpbf} delta={delta} />
+              <ScenarioTable rows={[{ label: "Current (baseline)", dbr: r.currentDbr, residual: r.residualDbr, mpbf: r.finalMpbf }, ...runScenarios(incomeScenarios)]} base={r.finalMpbf} delta={delta} />
             </div>
           )}
         </div>
       </div>
 
+      {/* ================= quick tools ================= */}
+      <QuickTools input={input} r={r} />
+
       {/* ================= audit trail ================= */}
       <div className="card anim-fade-up">
         <div className="px-4 py-3 border-b flex items-center gap-2" style={{ borderColor: "var(--line-soft)" }}>
-          <ICalc size={15} className="text-[var(--amber)]" />
           <h3 className="font-disp font-semibold text-[13.5px] m-0">Saved checks · audit trail</h3>
           <span className="mono text-[11px] text-[var(--ink-faint)] ml-auto">{checks.length} saved</span>
         </div>
@@ -1102,17 +831,7 @@ export default function Calculator() {
                         <button className="btn btn-ghost btn-sm" onClick={() => {
                           const pi = normalizeInput(parsed!.input as MortgageInput);
                           const ri = computeMortgage(pi);
-                          const liab = runScenarios(liabScenariosOf(pi));
-                          const income = runScenarios(incomeScenariosOf(pi));
-                          const best = [...liab, ...income]
-                            .map((s) => ({ label: s.label, d: s.mpbf - ri.finalMpbf, dbr: s.dbr }))
-                            .filter((c) => c.d > 5000)
-                            .sort((a, b) => b.d - a.d)[0];
-                          const obs = best
-                            ? `Strongest lever: ${best.label} — DBR moves ${fmtPct(ri.currentDbr)} → ${fmtPct(best.dbr)}, unlocking ${fmtAED(best.d)} of additional MPBF.`
-                            : `No scenario improves the baseline ${fmtAED(ri.finalMpbf)} — the binding constraint is ${ri.limitedBy.toLowerCase()}.`;
-                          const tables = buildScenarioTablesFor(pi, ri);
-                          setPreview({ input: pi, res: ri, tables, by: session?.name ?? "HFMC", obs });
+                          setPreview({ input: pi, res: ri, tables: buildScenarioTablesFor(pi, ri), by: session?.name ?? "HFMC", obs: bestObservation() });
                         }}>
                           <IEye size={13} /> Report
                         </button>
@@ -1124,8 +843,8 @@ export default function Calculator() {
                       </button>
                     ) : (
                       <select
-                        className="select"
-                        style={{ width: 170, fontSize: 12 }}
+                        className="select !w-auto text-[12px]"
+                        style={{ minWidth: 150 }}
                         value=""
                         onChange={(e) => {
                           if (!e.target.value) return;
@@ -1147,19 +866,19 @@ export default function Calculator() {
         )}
       </div>
 
-      <div className="flex items-center gap-2 text-[11.5px] text-[var(--ink-faint)] px-1 pb-20 xl:pb-0">
+      <div className="flex items-center gap-2 text-[11.5px] text-[var(--ink-faint)] px-1 pb-24 lg:pb-0">
         <Avatar name={session?.name ?? "?"} size={20} />
         <span>Prepared by {session?.name} · figures follow CBUAE-style limits (50% DBR, {input.applicantType} LTV bands, 25y max tenor) — lender policy may differ.</span>
       </div>
 
-      {/* thumb-reach result bar — phones only, taps through to the full rail */}
+      {/* thumb-reach result bar — phones/tablets only */}
       <div
-        className="xl:hidden fixed bottom-0 inset-x-0 z-40 px-3 pb-safe pt-1.5"
+        className="lg:hidden fixed bottom-0 inset-x-0 z-40 px-3 pb-safe pt-1.5"
         style={{ background: "color-mix(in srgb, var(--bg) 86%, transparent)", backdropFilter: "blur(10px)", borderTop: "1px solid var(--line-soft)" }}
       >
         <button
           onClick={scrollToResults}
-          className="w-full card flex items-center justify-between gap-3 px-4 py-2.5 text-left transition-transform active:scale-[0.985]"
+          className="w-full card flex items-center justify-between gap-3 px-4 py-2.5 text-left transition-transform active:scale-[0.985] cursor-pointer"
           style={{ borderColor: "var(--amber-line)", boxShadow: "0 12px 32px -12px rgba(15,23,42,0.4)" }}
         >
           <span className="min-w-0">
@@ -1239,17 +958,11 @@ function PreviewReport({
 
   const now = new Date();
   const date = now.toLocaleDateString("en-GB", { day: "2-digit", month: "long", year: "numeric" });
-  const ref = `HFMC-MEA-${now.getFullYear()}${String(now.getMonth() + 1).padStart(2, "0")}${String(
-    now.getDate()
-  ).padStart(2, "0")}-${(inp.name || "client").replace(/[^a-z0-9]/gi, "").slice(0, 6).toUpperCase() || "CLIENT"}`;
-  const numTh = (t: string) => (
-    <th className="num">{t}</th>
-  );
+  const ref = `HFMC-MEA-${now.getFullYear()}${String(now.getMonth() + 1).padStart(2, "0")}${String(now.getDate()).padStart(2, "0")}-${(inp.name || "client").replace(/[^a-z0-9]/gi, "").slice(0, 6).toUpperCase() || "CLIENT"}`;
+  const numTh = (t: string) => (<th className="num">{t}</th>);
 
   const PageLabel = ({ n, title }: { n: number; title: string }) => (
-    <div className="paper-page-label">
-      <span>Page {n} of 3 · {title}</span>
-    </div>
+    <div className="paper-page-label"><span>Page {n} of 3 · {title}</span></div>
   );
 
   const SlimBand = ({ n, title }: { n: number; title: string }) => (
@@ -1267,7 +980,6 @@ function PreviewReport({
     >
       <div className="h-full overflow-y-auto py-6 px-3 sm:px-6">
         <div className="max-w-[800px] mx-auto" onClick={(e) => e.stopPropagation()}>
-          {/* toolbar */}
           <div
             className="card flex flex-wrap items-center gap-2 px-4 py-2.5 mb-5 sticky top-0 z-10"
             style={{ background: "var(--raised)", boxShadow: "0 14px 40px -12px rgba(0,0,0,0.6)" }}
@@ -1285,7 +997,7 @@ function PreviewReport({
             </div>
           </div>
 
-          {/* ---------- page 1 ---------- */}
+          {/* page 1 */}
           <PageLabel n={1} title="Eligibility summary" />
           <div className="paper mb-7 anim-fade-up">
             <div className="paper-band">
@@ -1320,33 +1032,24 @@ function PreviewReport({
                 rows={[
                   ["Eligible monthly income", `${fmtAED(res.eligibleIncome)}${inp.coBorrower ? " (combined)" : ""}`],
                   ...(inp.coBorrower
-                    ? ([
-                        ["  · Applicant", fmtAED(res.ownIncome)],
-                        ["  · Co-borrower", fmtAED(res.coIncome)],
-                      ] as [string, string][])
+                    ? ([["  · Applicant", fmtAED(res.ownIncome)], ["  · Co-borrower", fmtAED(res.coIncome)]] as [string, string][])
                     : []),
                   ["Existing monthly liabilities", `${fmtAED(res.existingEmis)}${inp.coBorrower ? " (combined)" : ""}`],
-                  ...(inp.coBorrower
-                    ? ([
-                        ["  · Applicant EMIs", fmtAED(res.ownEmis)],
-                        ["  · Co-borrower EMIs", fmtAED(res.coEmis)],
-                      ] as [string, string][])
-                    : []),
                   ["Current DBR", fmtPct(res.currentDbr)],
-                  ["Maximum DBR (CBUAE)", fmtPct(res.maxDbr)],
+                  ["Maximum DBR", fmtPct(res.maxDbr)],
                   ["Residual DBR", fmtPct(res.residualDbr)],
                 ]}
               />
               <div className="paper-sec">Loan Parameters</div>
               <Pkv
                 rows={[
-                  ["Actual / contract rate", fmtPct(res.actualRate)],
-                  ["Stress load factor", `+ ${res.loadFactor.toFixed(2)}%`],
+                  ["Actual rate", fmtPct(res.actualRate)],
+                  ["Load factor", `+${res.loadFactor.toFixed(2)}%`],
                   ["Assessment rate", fmtPct(res.assessmentRate)],
-                  ["LTV applied", `${res.ltvPct}%${inp.ltvPctChoice != null || inp.customLtv ? " (selected)" : ` (default · ${inp.applicantType})`}`],
-                  ["Current age", `${res.ageNowYears} years`],
-                  ["Age processing margin", `${inp.marginMonths} months`],
-                  ["Maximum tenor used", tenorLabel(res.maxTenorMonths)],
+                  ["LTV applied", `${res.ltvPct}%`],
+                  ["Current age", `${res.ageNowYears} yrs`],
+                  ["Processing margin", `${inp.marginMonths} months`],
+                  ["Maximum tenor", tenorLabel(res.maxTenorMonths)],
                 ]}
               />
               <div className="paper-sec">MPBF — Eligibility Tests</div>
@@ -1364,7 +1067,7 @@ function PreviewReport({
                     <tr><td>Income multiplier cap</td><td className="num">{fmtAED(res.multiplierCap)}</td></tr>
                   )}
                   {inp.requested > 0 && (
-                    <tr><td>Requested finance</td><td className="num">{fmtAED(res.requested)}</td></tr>
+                    <tr><td>Requested finance</td><td className="num">{fmtAED(inp.requested)}</td></tr>
                   )}
                 </tbody>
               </table>
@@ -1377,19 +1080,18 @@ function PreviewReport({
                   ["Limited by", res.limitedBy],
                   ["Required down payment", fmtAED(res.downPayment)],
                   ["Actual LTV", fmtPct(res.actualLtv)],
-                  ["Proposed mortgage EMI (actual rate)", `${fmtAED(res.newEmi)} / month`],
                   ["DBR after proposed mortgage", fmtPct(res.dbrAfter)],
                 ]}
               />
             </div>
           </div>
 
-          {/* ---------- page 2 ---------- */}
+          {/* page 2 */}
           <PageLabel n={2} title="Supporting calculation" />
           <div className="paper mb-7 anim-fade-up">
             <SlimBand n={2} title="Supporting calculation" />
             <div className="paper-body">
-              <div className="paper-sec">Income Breakdown</div>
+              <div className="paper-sec">Income Breakdown — Applicant</div>
               <table className="paper-tbl">
                 <thead>
                   <tr>
@@ -1401,9 +1103,7 @@ function PreviewReport({
                   </tr>
                 </thead>
                 <tbody>
-                  {inp.incomes.length === 0 && (
-                    <tr><td colSpan={5}>No income entered</td></tr>
-                  )}
+                  {inp.incomes.length === 0 && (<tr><td colSpan={5}>No income entered</td></tr>)}
                   {inp.incomes.map((row) => (
                     <tr key={row.id}>
                       <td>{row.source}</td>
@@ -1416,17 +1116,15 @@ function PreviewReport({
                 </tbody>
                 <tfoot>
                   <tr>
-                    <td colSpan={4}>Eligible monthly income{inp.coBorrower ? " (combined)" : ""}</td>
-                    <td className="num">{fmtAED(res.eligibleIncome)}</td>
+                    <td colSpan={4}>Applicant eligible income</td>
+                    <td className="num">{fmtAED(res.ownIncome)}</td>
                   </tr>
                 </tfoot>
               </table>
 
               {inp.coBorrower && (
                 <>
-                  <div className="paper-sec">
-                    Income Breakdown — Co-borrower{inp.coBorrower.name ? ` (${inp.coBorrower.name})` : ""}
-                  </div>
+                  <div className="paper-sec">Income Breakdown — Co-borrower{inp.coBorrower.name ? ` (${inp.coBorrower.name})` : ""}</div>
                   <table className="paper-tbl">
                     <thead>
                       <tr>
@@ -1438,9 +1136,7 @@ function PreviewReport({
                       </tr>
                     </thead>
                     <tbody>
-                      {inp.coBorrower.incomes.length === 0 && (
-                        <tr><td colSpan={5}>No income entered</td></tr>
-                      )}
+                      {inp.coBorrower.incomes.length === 0 && (<tr><td colSpan={5}>No income entered</td></tr>)}
                       {inp.coBorrower.incomes.map((row) => (
                         <tr key={row.id}>
                           <td>{row.source}</td>
@@ -1455,6 +1151,10 @@ function PreviewReport({
                       <tr>
                         <td colSpan={4}>Co-borrower eligible income</td>
                         <td className="num">{fmtAED(res.coIncome)}</td>
+                      </tr>
+                      <tr>
+                        <td colSpan={4}>Combined eligible income</td>
+                        <td className="num">{fmtAED(res.eligibleIncome)}</td>
                       </tr>
                     </tfoot>
                   </table>
@@ -1473,9 +1173,7 @@ function PreviewReport({
                   </tr>
                 </thead>
                 <tbody>
-                  {inp.liabilities.length === 0 && (
-                    <tr><td colSpan={5}>No liabilities declared</td></tr>
-                  )}
+                  {inp.liabilities.length === 0 && (<tr><td colSpan={5}>No liabilities declared</td></tr>)}
                   {inp.liabilities.map((row) => (
                     <tr key={row.id}>
                       <td>{row.name}</td>
@@ -1508,9 +1206,7 @@ function PreviewReport({
                       </tr>
                     </thead>
                     <tbody>
-                      {inp.coBorrower.liabilities.length === 0 && (
-                        <tr><td colSpan={5}>No liabilities declared</td></tr>
-                      )}
+                      {inp.coBorrower.liabilities.length === 0 && (<tr><td colSpan={5}>No liabilities declared</td></tr>)}
                       {inp.coBorrower.liabilities.map((row) => (
                         <tr key={row.id}>
                           <td>{row.name}</td>
@@ -1540,21 +1236,18 @@ function PreviewReport({
                 rows={[
                   ["Assessment basis", `${fmtPct(res.actualRate)} actual + ${res.loadFactor.toFixed(2)}% load = ${fmtPct(res.assessmentRate)} assessment`],
                   ["Age calculation", `${res.ageNowYears}y now + ${inp.marginMonths}m margin → final age ${inp.finalAge} → ${tenorLabel(res.remainingMonths)} available`],
-                  ["Tenor used", `${tenorLabel(res.maxTenorMonths)}${inp.tenorOverrideMonths ? " (manual override)" : res.tenorLimitedBy === "co-borrower" ? ` (limited by co-borrower, age ${res.coAgeYears})` : " (age-constrained)"}`],
-                  ["LTV applied", `${res.ltvPct}% — ${inp.applicantType}${res.calcBasis > 5000000 ? ", above AED 5M band" : ", up to AED 5M band"}`],
+                  ["Tenor used", tenorLabel(res.maxTenorMonths)],
                 ]}
               />
 
               <div className="paper-sec">Calculation Trail</div>
               <div className="paper-trail">
-                {res.trail.map((t, i) => (
-                  <div key={i}>{t}</div>
-                ))}
+                {res.trail.map((t, i) => (<div key={i}>{t}</div>))}
               </div>
             </div>
           </div>
 
-          {/* ---------- page 3 ---------- */}
+          {/* page 3 */}
           <PageLabel n={3} title="What-if analysis" />
           <div className="paper mb-7 anim-fade-up">
             <SlimBand n={3} title="What-if analysis" />
@@ -1575,15 +1268,10 @@ function PreviewReport({
                     padding: "12px 16px",
                   }}
                 >
-                  <div
-                    className="font-disp font-bold text-[10px] tracking-[0.14em] mb-1.5"
-                    style={{ color: "#c68a28" }}
-                  >
+                  <div className="font-disp font-bold text-[10px] tracking-[0.14em] mb-1.5" style={{ color: "#c68a28" }}>
                     KEY OBSERVATION
                   </div>
-                  <div className="text-[12px] leading-relaxed" style={{ color: "#172024" }}>
-                    {obs}
-                  </div>
+                  <div className="text-[12px] leading-relaxed" style={{ color: "#172024" }}>{obs}</div>
                 </div>
               )}
 
@@ -1598,17 +1286,13 @@ function PreviewReport({
                   <table className="paper-tbl">
                     <thead>
                       <tr>
-                        {t.head.map((h, i) => (
-                          <th key={h} className={i > 0 ? "num" : ""}>{h}</th>
-                        ))}
+                        {t.head.map((h, i) => (<th key={h} className={i > 0 ? "num" : ""}>{h}</th>))}
                       </tr>
                     </thead>
                     <tbody>
                       {t.body.map((row, ri) => (
                         <tr key={ri}>
-                          {row.map((cell, ci) => (
-                            <td key={ci} className={ci > 0 ? "num" : ""}>{cell}</td>
-                          ))}
+                          {row.map((cell, ci) => (<td key={ci} className={ci > 0 ? "num" : ""}>{cell}</td>))}
                         </tr>
                       ))}
                     </tbody>
@@ -1635,6 +1319,108 @@ function PreviewReport({
           </div>
         </div>
       </div>
+    </div>
+  );
+}
+
+function ToolCard({ title, children, out, note }: { title: string; children: ReactNode; out: string; note: string }) {
+  return (
+    <div className="card card-hover p-4">
+      <div className="text-[10.5px] uppercase tracking-[0.12em] font-disp font-semibold text-[var(--ink-faint)] mb-2.5">{title}</div>
+      {children}
+      <div className="mono text-[19px] font-semibold mt-2.5" style={{ color: "var(--mint)" }}>{out}</div>
+      <div className="text-[11px] text-[var(--ink-faint)] mt-0.5">{note}</div>
+    </div>
+  );
+}
+
+function QuickTools({ input, r }: { input: MortgageInput; r: MortgageResult }) {
+  const [finance, setFinance] = useState(1000000);
+  const [propVal, setPropVal] = useState(1500000);
+  const [reqFin, setReqFin] = useState(1200000);
+
+  const reqEmi = emiFor(finance, r.assessmentRate, r.maxTenorMonths);
+  const reqIncome = reqEmi / 0.5 + r.existingEmis;
+  const maxProp = r.ltvPct > 0 ? r.dbrMpbf / (r.ltvPct / 100) : 0;
+  const ltvCap = (propVal * r.ltvPct) / 100;
+  const funded = Math.min(reqFin, ltvCap);
+  const reqDp = Math.max(0, propVal - funded);
+
+  return (
+    <div className="anim-fade-up">
+      <div className="flex items-baseline gap-3 mb-2.5 px-1">
+        <span className="mono text-[11px] font-semibold px-1.5 py-0.5 rounded" style={{ background: "var(--amber-tint)", color: "var(--amber)" }}>T</span>
+        <h2 className="font-disp font-semibold text-[15px] m-0">Quick tools</h2>
+        <span className="text-[11.5px] text-[var(--ink-faint)] hidden sm:inline">reverse answers from the same numbers</span>
+      </div>
+      <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+        <ToolCard
+          title="Required income"
+          out={fmtAED(reqIncome)}
+          note={`eligible monthly income needed · ${r.assessmentRate.toFixed(2)}% over ${tenorLabel(r.maxTenorMonths)} · incl. existing EMIs`}
+        >
+          <label className="label">Desired finance (AED)</label>
+          <NumIn value={finance} onChange={setFinance} step={50000} />
+        </ToolCard>
+        <ToolCard
+          title="Maximum property value"
+          out={fmtAED(maxProp)}
+          note={`income supports ${fmtAED(r.dbrMpbf)} at ${r.ltvPct}% LTV (${input.applicantType})`}
+        >
+          <label className="label">Based on current eligible income</label>
+          <div className="text-[12px] text-[var(--ink-dim)]">DBR MPBF {fmtAED(r.dbrMpbf)} ÷ {r.ltvPct}% LTV</div>
+        </ToolCard>
+        <ToolCard
+          title="Required down payment"
+          out={fmtAED(reqDp)}
+          note={reqFin > ltvCap ? `bank funds at most ${fmtAED(ltvCap)} at ${r.ltvPct}% LTV — rest is cash` : "requested finance fits inside the LTV cap"}
+        >
+          <div className="grid grid-cols-2 gap-2">
+            <div>
+              <label className="label">Property (AED)</label>
+              <NumIn value={propVal} onChange={setPropVal} step={50000} />
+            </div>
+            <div>
+              <label className="label">Finance (AED)</label>
+              <NumIn value={reqFin} onChange={setReqFin} step={50000} />
+            </div>
+          </div>
+        </ToolCard>
+      </div>
+    </div>
+  );
+}
+
+function ScenarioTable({ rows, base, delta }: {
+  rows: { label: string; dbr: number; residual: number; mpbf: number }[];
+  base: number;
+  delta: (v: number) => ReactNode;
+}) {
+  return (
+    <div className="overflow-x-auto">
+      <table className="tbl" style={{ minWidth: 560 }}>
+        <thead>
+          <tr>
+            <th>Scenario</th>
+            <th>Current DBR</th>
+            <th>Residual DBR</th>
+            <th>Final MPBF</th>
+            <th>Change</th>
+          </tr>
+        </thead>
+        <tbody>
+          {rows.map((row, i) => (
+            <tr key={row.label + i} style={{ cursor: "default" }} className={i === 0 ? "anim-fade-in" : ""}>
+              <td className={i === 0 ? "font-semibold" : ""}>{row.label}</td>
+              <td className="mono text-[12.5px]">{fmtPct(row.dbr)}</td>
+              <td className="mono text-[12.5px]" style={{ color: "var(--mint)" }}>{fmtPct(row.residual)}</td>
+              <td className="mono font-semibold">{fmtAED(row.mpbf)}</td>
+              <td className="mono text-[12.5px]">{i === 0 ? <span className="text-[var(--ink-faint)]">baseline</span> : delta(row.mpbf)}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+      <span className="hidden">{base}</span>
     </div>
   );
 }
